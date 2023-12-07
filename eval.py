@@ -48,7 +48,7 @@ def main(checkpoint, output_dir, device):
     env_runner = hydra.utils.instantiate(
         cfg.task.env_runner,
         output_dir=output_dir)
-    runner_log = env_runner.run(policy)
+    runner_log = env_runner.run(policy) ## 重点
     
     # dump log to json
     json_log = dict()
