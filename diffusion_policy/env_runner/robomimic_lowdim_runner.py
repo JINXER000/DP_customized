@@ -284,7 +284,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
-                    action_dict = policy.predict_action(obs_dict)
+                    action_dict = policy.predict_action(obs_dict) ## 重点！！
 
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,

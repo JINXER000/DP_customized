@@ -148,7 +148,7 @@ class DiffusionUnetLowdimPolicy(BaseLowdimPolicy):
             cond_mask,
             local_cond=local_cond,
             global_cond=global_cond,
-            **self.kwargs)
+            **self.kwargs) ## 重点！！
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
