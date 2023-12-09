@@ -20,13 +20,17 @@ python train.py --config-name train_diffusion_unet_lowdim_workspace task=transpo
 
 ## === image === ##
 python train.py --config-name train_diffusion_unet_image_workspace task=lift_image_abs
-python train.py --config-name train_diffusion_unet_lowdim_workspace task=blockpush_lowdim_seed
+python train.py --config-name train_diffusion_unet_image_workspace task=square_image_abs
+
 
 ## === lowdim DDIM === ##
 python train.py --config-name train_diffusion_unet_lowdim_workspace_DDIM task=square_lowdim
 
+## === lowdim Consistency Model === ##
+python train.py --config-name train_diffusion_unet_lowdim_workspace_CM task=square_lowdim
 
-## == Evaluation == ##
+
+## === Evaluation === ##
 python eval.py --checkpoint data/outputs/2023.11.30/18.51.09_train_diffusion_unet_lowdim_pusht_lowdim/checkpoints/latest.ckpt -o data/eval/pusht_lowdim_20231103_185109
 python eval.py --checkpoint data/outputs/2023.12.01/19.07.36_train_diffusion_unet_lowdim_transport_lowdim/checkpoints/latest.ckpt -o data/eval/transport_lowdim_20231203_190736
 python eval.py --checkpoint data/outputs/2023.12.03/23.21.48_train_diffusion_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_lowdim_20231203_232148
