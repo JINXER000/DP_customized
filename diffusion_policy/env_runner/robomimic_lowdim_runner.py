@@ -23,6 +23,9 @@ import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
 
+## edited by hang
+import time
+
 
 def create_env(env_meta, obs_keys):
     ObsUtils.initialize_obs_modality_mapping_from_dict(
@@ -238,6 +241,7 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
         # allocate data
         all_video_paths = [None] * n_inits
         all_rewards = [None] * n_inits
+        latency = []
 
         for chunk_idx in range(n_chunks):
             start = chunk_idx * n_envs
@@ -283,8 +287,11 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                         device=device))
 
                 # run policy
+                tic = time.time()
                 with torch.no_grad():
                     action_dict = policy.predict_action(obs_dict) ## 重点！！
+                toc = time.time()
+                latency.append(toc - tic)
 
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
@@ -313,6 +320,9 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             # collect data for this round
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
             all_rewards[this_global_slice] = env.call('get_attr', 'reward')[this_local_slice]
+            # edited by hang
+            latency_mean = np.array(latency).mean()
+            print(f"average inference latency = {latency_mean}")
 
         # log
         max_rewards = collections.defaultdict(list)
@@ -343,6 +353,10 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             name = prefix+'mean_score'
             value = np.mean(value)
             log_data[name] = value
+
+        # edited by hang
+        log_data["inference latency"] = latency_mean
+        print(f"test success rate = {log_data['test/mean_score']}")
 
         return log_data
 
