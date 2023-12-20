@@ -14,6 +14,7 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy.model.consistency.karras_diffusion import KarrasDenoiser
 from diffusion_policy.model.consistency.sampler import create_named_schedule_sampler
 
+import functools
 import ipdb
 
 class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
@@ -25,6 +26,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             action_dim, 
             n_action_steps, 
             n_obs_steps,
+            training_mode, ## new
             num_inference_steps=None,
             obs_as_local_cond=False,
             obs_as_global_cond=False,
@@ -39,16 +41,15 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         '''-- model follow DP --'''
         self.model = model
         '''-- scheduler follow CM --'''
-        diffusion = KarrasDenoiser(
+        self.diffusion = KarrasDenoiser(
             sigma_data=noise_scheduler.sigma_data,
             sigma_max=noise_scheduler.sigma_max,
             sigma_min=noise_scheduler.sigma_min,
             distillation=noise_scheduler.distillation,
             weight_schedule=noise_scheduler.weight_schedule,
         )
-        self.noise_schedule = create_named_schedule_sampler(noise_scheduler.schedule_sampler, diffusion)
+        self.noise_schedule = create_named_schedule_sampler(noise_scheduler.schedule_sampler, self.diffusion)
         # self.noise_scheduler = noise_scheduler
-
 
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
@@ -63,6 +64,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         self.action_dim = action_dim
         self.n_action_steps = n_action_steps
         self.n_obs_steps = n_obs_steps
+        self.training_mode = training_mode ## new
         self.obs_as_local_cond = obs_as_local_cond
         self.obs_as_global_cond = obs_as_global_cond
         self.pred_action_steps_only = pred_action_steps_only
@@ -229,49 +231,149 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         else:
             trajectory = torch.cat([action, obs], dim=-1)
 
-        '''-- compuate loss --'''
+        '''---- compute loss ----'''
         ipdb.set_trace()
 
-        # generate impainting mask
-        if self.pred_action_steps_only:
-            condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
+        if self.training_mode == "consistency_distillation":
+            compute_losses = functools.partial(
+                self.diffusion.consistency_losses,
+                self.ddp_model,
+                nbatch,
+                num_scales,
+                target_model=self.target_model,
+                teacher_model=self.teacher_model,
+                teacher_diffusion=self.teacher_diffusion,
+                model_kwargs=micro_cond,
+            )
+        elif self.training_mode == "consistency_training":
+            compute_losses = functools.partial(
+                self.diffusion.consistency_losses,
+                self.ddp_model,
+                micro,
+                num_scales,
+                target_model=self.target_model,
+                model_kwargs=micro_cond,
+            )
         else:
-            condition_mask = self.mask_generator(trajectory.shape) ## [B, horizon, act_dim]
+            raise ValueError(f"Unknown training mode {self.training_mode}")
 
-        # Sample noise that we'll add to the images
-        noise = torch.randn(trajectory.shape, device=trajectory.device)
-        bsz = trajectory.shape[0]
-        # Sample a random timestep for each image
-        timesteps = torch.randint(
-            0, self.noise_scheduler.config.num_train_timesteps, 
-            (bsz,), device=trajectory.device
-        ).long()
-        # Add noise to the clean images according to the noise magnitude at each timestep
-        # (this is the forward diffusion process)
 
-        noisy_trajectory = self.noise_scheduler.add_noise(
-            trajectory, noise, timesteps)
-        
-        # compute loss mask
-        loss_mask = ~condition_mask
 
-        # apply conditioning
-        noisy_trajectory[condition_mask] = trajectory[condition_mask]
-        
-        # Predict the noise residual
-        pred = self.model(noisy_trajectory, timesteps, 
-            local_cond=local_cond, global_cond=global_cond)
+        # # generate impainting mask
+        # if self.pred_action_steps_only:
+        #     condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
+        # else:
+        #     condition_mask = self.mask_generator(trajectory.shape) ## [B, horizon, act_dim]
 
-        pred_type = self.noise_scheduler.config.prediction_type 
-        if pred_type == 'epsilon':
-            target = noise
-        elif pred_type == 'sample':
-            target = trajectory
-        else:
-            raise ValueError(f"Unsupported prediction type {pred_type}")
+        # # Sample noise that we'll add to the images
+        # noise = torch.randn(trajectory.shape, device=trajectory.device)
+        # bsz = trajectory.shape[0]
+        # # Sample a random timestep for each image
+        # timesteps = torch.randint(
+        #     0, self.noise_scheduler.config.num_train_timesteps,
+        #     (bsz,), device=trajectory.device
+        # ).long()
+        # # Add noise to the clean images according to the noise magnitude at each timestep
+        # # (this is the forward diffusion process)
+        #
+        # noisy_trajectory = self.noise_scheduler.add_noise(
+        #     trajectory, noise, timesteps)
+        #
+        # # compute loss mask
+        # loss_mask = ~condition_mask
+        #
+        # # apply conditioning
+        # noisy_trajectory[condition_mask] = trajectory[condition_mask]
+        #
+        # # Predict the noise residual
+        # pred = self.model(noisy_trajectory, timesteps,
+        #     local_cond=local_cond, global_cond=global_cond)
+        #
+        # pred_type = self.noise_scheduler.config.prediction_type
+        # if pred_type == 'epsilon':
+        #     target = noise
+        # elif pred_type == 'sample':
+        #     target = trajectory
+        # else:
+        #     raise ValueError(f"Unsupported prediction type {pred_type}")
+        #
+        # loss = F.mse_loss(pred, target, reduction='none')
+        # loss = loss * loss_mask.type(loss.dtype)
+        # loss = reduce(loss, 'b ... -> b (...)', 'mean')
+        # loss = loss.mean()
+        # return loss
 
-        loss = F.mse_loss(pred, target, reduction='none')
-        loss = loss * loss_mask.type(loss.dtype)
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
-        return loss
+
+    def compute_CM_loss(self, batch, cond):
+        self.mp_trainer.zero_grad()
+        for i in range(0, batch.shape[0], self.microbatch):
+            micro = batch[i : i + self.microbatch].to(dist_util.dev())
+            micro_cond = {
+                k: v[i : i + self.microbatch].to(dist_util.dev())
+                for k, v in cond.items()
+            }
+            last_batch = (i + self.microbatch) >= batch.shape[0]
+            t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+
+            ema, num_scales = self.ema_scale_fn(self.global_step)
+            if self.training_mode == "progdist":
+                if num_scales == self.ema_scale_fn(0)[1]:
+                    compute_losses = functools.partial(
+                        self.diffusion.progdist_losses,
+                        self.ddp_model,
+                        micro,
+                        num_scales,
+                        target_model=self.teacher_model,
+                        target_diffusion=self.teacher_diffusion,
+                        model_kwargs=micro_cond,
+                    )
+                else:
+                    compute_losses = functools.partial(
+                        self.diffusion.progdist_losses,
+                        self.ddp_model,
+                        micro,
+                        num_scales,
+                        target_model=self.target_model,
+                        target_diffusion=self.diffusion,
+                        model_kwargs=micro_cond,
+                    )
+            elif self.training_mode == "consistency_distillation":
+                compute_losses = functools.partial(
+                    self.diffusion.consistency_losses,
+                    self.ddp_model,
+                    micro,
+                    num_scales,
+                    target_model=self.target_model,
+                    teacher_model=self.teacher_model,
+                    teacher_diffusion=self.teacher_diffusion,
+                    model_kwargs=micro_cond,
+                )
+            elif self.training_mode == "consistency_training":
+                compute_losses = functools.partial(
+                    self.diffusion.consistency_losses,
+                    self.ddp_model,
+                    micro,
+                    num_scales,
+                    target_model=self.target_model,
+                    model_kwargs=micro_cond,
+                )
+            else:
+                raise ValueError(f"Unknown training mode {self.training_mode}")
+
+            if last_batch or not self.use_ddp:
+                losses = compute_losses()
+            else:
+                with self.ddp_model.no_sync():
+                    losses = compute_losses()
+
+            if isinstance(self.schedule_sampler, LossAwareSampler):
+                self.schedule_sampler.update_with_local_losses(
+                    t, losses["loss"].detach()
+                )
+
+            loss = (losses["loss"] * weights).mean()
+
+            log_loss_dict(
+                self.diffusion, t, {k: v * weights for k, v in losses.items()}
+            )
+            self.mp_trainer.backward(loss)
