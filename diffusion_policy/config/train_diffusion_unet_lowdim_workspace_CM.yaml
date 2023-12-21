@@ -2,8 +2,8 @@ defaults:
   - _self_
   - task: pusht_lowdim
 
-name: train_diffusion_unet_lowdim
-_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
+name: train_consistency_unet_lowdim
+_target_: diffusion_policy.workspace.train_consistency_unet_lowdim_workspace.TrainConsistencyUnetLowdimWorkspaces
 
 obs_dim: ${task.obs_dim}
 action_dim: ${task.action_dim}
@@ -22,10 +22,10 @@ obs_as_global_cond: True
 pred_action_steps_only: False
 
 policy:
-  _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy.DiffusionUnetLowdimPolicy
+  _target_: diffusion_policy.policy.consistency_unet_lowdim_policy.ConsistencyUnetLowdimPolicy
 
   model:
-    _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
+    _target_: diffusion_policy.model.consistency.conditional_unet1d.ConditionalUnet1D
     input_dim: "${eval: ${task.action_dim} if ${obs_as_local_cond} or ${obs_as_global_cond} else ${task.obs_dim} + ${task.action_dim}}"
     local_cond_dim: "${eval: ${task.obs_dim} if ${obs_as_local_cond} else None}"
     global_cond_dim: "${eval: ${task.obs_dim}*${n_obs_steps} if ${obs_as_global_cond} else None}"
@@ -36,14 +36,26 @@ policy:
     cond_predict_scale: True
 
   noise_scheduler:
-    _target_: diffusers.schedulers.scheduling_consistency_models.CMStochasticIterativeScheduler
-    num_train_timesteps: 40
-    sigma_min: 0.002
-    sigma_max: 80
     sigma_data: 0.5
-    s_noise: 1.0
-    rho: 7.0
-    clip_denoised: True
+    sigma_max: 80.0
+    sigma_min: 0.002
+    distillation: False
+    weight_schedule: "karras"
+    schedule_sampler: "uniform"
+
+  ## new for ema_scale_fn()
+  ema_scale:
+    teacher_model_path: ""
+    teacher_dropout: 0.1
+    training_mode: "consistency_training"
+    target_ema_mode: "fixed"
+    scale_mode: "fixed"
+    total_training_steps: 600000
+    start_ema: 0.0
+    start_scales: 40
+    end_scales: 40
+    distill_steps_per_iter: 50000
+    loss_norm: "lpips"
 
   horizon: ${horizon}
   obs_dim: ${obs_dim}
@@ -68,14 +80,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 256
+  batch_size: 8
   num_workers: 1
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 256
+  batch_size: 8
   num_workers: 1
   shuffle: False
   pin_memory: True
@@ -103,7 +115,7 @@ training:
   # in epochs
   rollout_every: 50
   checkpoint_every: 50
-  val_every: 20
+  val_every: 10
   sample_every: 5
   # steps per epoch
   max_train_steps: null
