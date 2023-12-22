@@ -31,9 +31,7 @@ from diffusers.training_utils import EMAModel
 
 ## new packages
 from diffusion_policy.policy.consistency_unet_lowdim_policy import ConsistencyUnetLowdimPolicy
-import dill
-
-from diffusion_policy.policy.diffusion_transformer_lowdim_policy import DiffusionTransformerLowdimPolicy
+import ipdb
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -172,8 +170,12 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
 
                         '''-- compute loss --'''
                         raw_loss = self.model.compute_loss(batch, self.global_step)
+
+                        '''-- optimization -- '''
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
+
+                        print(f"raw_loss={raw_loss.data} | loss={loss.data}")
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
@@ -185,6 +187,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                         if cfg.training.use_ema:
                             ema.step(self.model)
 
+                        '''-- log --'''
                         # logging
                         raw_loss_cpu = raw_loss.item()
                         tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
@@ -232,7 +235,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss = self.model.compute_loss(batch)
+                                loss = self.model.compute_loss(batch, self.global_step)
                                 val_losses.append(loss)
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
