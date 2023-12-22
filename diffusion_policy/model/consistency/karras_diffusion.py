@@ -253,7 +253,8 @@ def karras_sample(
     clip_denoised=True,
     progress=False,
     callback=None,
-    model_kwargs=None,
+    local_cond=None,
+    global_cond=None,
     device=None,
     sigma_min=0.002,
     sigma_max=80,  # higher for highres?
@@ -298,7 +299,11 @@ def karras_sample(
         sampler_args = {}
 
     def denoiser(x_t, sigma):
-        _, denoised = diffusion.denoise(model, x_t, sigma, **model_kwargs)
+        _, denoised = diffusion.denoise(model,
+                                        x_t,
+                                        sigma,
+                                        local_cond=local_cond,
+                                        global_cond=global_cond)
         if clip_denoised:
             denoised = denoised.clamp(-1, 1)
         return denoised
