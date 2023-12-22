@@ -11,7 +11,7 @@ from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 
 ## new package
-from diffusion_policy.model.consistency.karras_diffusion import KarrasDenoiser
+from diffusion_policy.model.consistency.karras_diffusion import KarrasDenoiser, karras_sample
 from diffusion_policy.model.consistency.sampler import create_named_schedule_sampler, LossAwareSampler
 from diffusion_policy.model.consistency.scripts_util import create_ema_and_scales_fn
 
@@ -25,6 +25,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             model: ConditionalUnet1D,
             noise_scheduler,
             ema_scale,
+            sample,
             horizon, 
             obs_dim, 
             action_dim, 
@@ -90,49 +91,25 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         self.oa_step_convention = oa_step_convention
         self.kwargs = kwargs
 
+        #
+        self.sampler = sample.sampler
+        self.generator = sample.generator
+        self.ts = sample.ts
+        self.clip_denoised = sample.clip_denoised
+        self.sigma_min = noise_scheduler.sigma_min
+        self.sigma_max = noise_scheduler.sigma_max
+
+        self.s_churn = sample.s_churn
+        self.s_tmin = sample.s_tmin
+        self.s_tmax = sample.s_tmax
+        self.s_noise = float(sample.s_noise)
+        self.steps = sample.steps
+
+
         if num_inference_steps is None:
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
-    
-    # ========= inference  ============
-    def conditional_sample(self, 
-            condition_data, condition_mask,
-            local_cond=None, global_cond=None,
-            generator=None,
-            # keyword arguments to scheduler.step
-            **kwargs
-            ):
-        model = self.model
-        scheduler = self.noise_scheduler
 
-        trajectory = torch.randn(
-            size=condition_data.shape, 
-            dtype=condition_data.dtype,
-            device=condition_data.device,
-            generator=generator)
-    
-        # set step values
-        scheduler.set_timesteps(self.num_inference_steps)
-
-        for t in scheduler.timesteps:
-            # 1. apply conditioning
-            trajectory[condition_mask] = condition_data[condition_mask]
-
-            # 2. predict model output
-            model_output = model(trajectory, t, 
-                local_cond=local_cond, global_cond=global_cond)
-
-            # 3. compute previous image: x_t -> x_t-1
-            trajectory = scheduler.step(
-                model_output, t, trajectory, 
-                generator=generator,
-                **kwargs
-                ).prev_sample
-        
-        # finally make sure conditioning is enforced
-        trajectory[condition_mask] = condition_data[condition_mask]        
-
-        return trajectory
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -181,13 +158,25 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             cond_data[:,:To,Da:] = nobs[:,:To]
             cond_mask[:,:To,Da:] = True
 
-        # run sampling
-        nsample = self.conditional_sample(
-            cond_data, 
-            cond_mask,
+        nsample = karras_sample(
+            self.diffusion,
+            self.model,
+            (B, T, Da),
+            steps=self.steps,
+            clip_denoised=self.clip_denoised,
             local_cond=local_cond,
             global_cond=global_cond,
-            **self.kwargs) ## 重点！！
+            device=self.device,
+            sigma_min=self.sigma_min,
+            sigma_max=self.sigma_max,
+            sampler=self.sampler,
+            s_churn=self.s_churn,
+            s_tmin=self.s_tmin,
+            s_tmax=self.s_tmax,
+            s_noise=self.s_noise,
+            generator=None,
+            ts=self.ts,
+        ) ## 重点！！ CM 定制！
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
@@ -202,7 +191,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
                 start = To - 1
             end = start + self.n_action_steps
             action = action_pred[:,start:end]
-        
+
         result = {
             'action': action,
             'action_pred': action_pred
@@ -213,6 +202,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             action_obs_pred = obs_pred[:,start:end]
             result['action_obs_pred'] = action_obs_pred
             result['obs_pred'] = obs_pred
+
         return result
 
     # ========= training  ============
@@ -268,8 +258,6 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             raise ValueError(f"Warning training mode {self.training_mode}")
 
         losses = compute_losses()
-
-        ipdb.set_trace()
 
         if isinstance(self.schedule_sampler, LossAwareSampler):
             self.schedule_sampler.update_with_local_losses(
