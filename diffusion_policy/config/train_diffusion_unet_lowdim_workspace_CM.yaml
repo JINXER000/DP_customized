@@ -57,16 +57,29 @@ policy:
     distill_steps_per_iter: 50000
     loss_norm: "lpips"
 
+  sample:
+    sampler: "heun"
+    generator: None
+    ts: ""
+    clip_denoised: True
+    s_churn: 0.0
+    s_tmin: 0.0
+    s_tmax: 1.0
+    s_noise: "inf"
+    steps: 40
+
   horizon: ${horizon}
   obs_dim: ${obs_dim}
   action_dim: ${action_dim}
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
   n_obs_steps: ${n_obs_steps}
-  num_inference_steps: 100
+  num_inference_steps: 1
   obs_as_local_cond: ${obs_as_local_cond}
   obs_as_global_cond: ${obs_as_global_cond}
   pred_action_steps_only: ${pred_action_steps_only}
   oa_step_convention: True
+
+
 
   # scheduler.step params
   # predict_epsilon: True
