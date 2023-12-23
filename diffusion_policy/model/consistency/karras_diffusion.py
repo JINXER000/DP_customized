@@ -44,8 +44,8 @@ class KarrasDenoiser:
         rho=7.0,
         weight_schedule="karras",
         distillation=False,
-        #loss_norm="lpips",
         loss_norm="l2",
+        # loss_norm="mse"
     ):
         self.sigma_data = sigma_data
         self.sigma_max = sigma_max
@@ -53,8 +53,6 @@ class KarrasDenoiser:
         self.weight_schedule = weight_schedule
         self.distillation = distillation
         self.loss_norm = loss_norm
-        if loss_norm == "lpips":
-            self.lpips_loss = LPIPS(replace_pooling=True, reduction="none")
         self.rho = rho
         self.num_timesteps = 40
 
@@ -185,7 +183,6 @@ class KarrasDenoiser:
         distiller_target = target_denoise_fn(x_t2, t2, local_cond, global_cond)
         distiller_target = distiller_target.detach()
 
-
         snrs = self.get_snr(t)
         weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
         if self.loss_norm == "l1":
@@ -194,29 +191,6 @@ class KarrasDenoiser:
         elif self.loss_norm == "l2":
             diffs = (distiller - distiller_target) ** 2
             loss = mean_flat(diffs) * weights
-        elif self.loss_norm == "l2-32":
-            distiller = F.interpolate(distiller, size=32, mode="bilinear")
-            distiller_target = F.interpolate(
-                distiller_target,
-                size=32,
-                mode="bilinear",
-            )
-            diffs = (distiller - distiller_target) ** 2
-            loss = mean_flat(diffs) * weights
-        elif self.loss_norm == "lpips":
-            if x_start.shape[-1] < 256:
-                distiller = F.interpolate(distiller.unsqueeze(0), size=224, mode="bilinear")
-                distiller_target = F.interpolate(
-                    distiller_target.unsqueeze(0), size=224, mode="bilinear"
-                )
-
-            loss = (
-                self.lpips_loss(
-                    (distiller + 1) / 2.0,
-                    (distiller_target + 1) / 2.0,
-                )
-                * weights
-            )
         else:
             raise ValueError(f"Unknown loss norm {self.loss_norm}")
 
