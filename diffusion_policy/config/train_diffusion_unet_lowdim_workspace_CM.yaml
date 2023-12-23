@@ -55,7 +55,7 @@ policy:
     start_scales: 40
     end_scales: 40
     distill_steps_per_iter: 50000
-    loss_norm: "lpips"
+    loss_norm: "l2"
 
   sample:
     sampler: "heun"
@@ -93,14 +93,14 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 8
+  batch_size: 256
   num_workers: 1
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 8
+  batch_size: 256
   num_workers: 1
   shuffle: False
   pin_memory: True
@@ -116,7 +116,7 @@ optimizer:
 training:
   device: "cuda:0"
   seed: 42
-  debug: True
+  debug: False
   resume: True
   # optimization
   lr_scheduler: cosine
@@ -128,7 +128,7 @@ training:
   # in epochs
   rollout_every: 50
   checkpoint_every: 50
-  val_every: 10
+  val_every: 1
   sample_every: 5
   # steps per epoch
   max_train_steps: null
@@ -149,7 +149,7 @@ checkpoint:
   topk:
     monitor_key: test_mean_score
     mode: max
-    k: 5
+    k: 10
     format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False
