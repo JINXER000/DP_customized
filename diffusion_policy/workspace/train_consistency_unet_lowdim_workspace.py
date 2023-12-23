@@ -175,7 +175,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 
-                        print(f"raw_loss={raw_loss.data} | loss={loss.data}")
+                        # print(f"raw_loss={raw_loss.data} | loss={loss.data}")
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
