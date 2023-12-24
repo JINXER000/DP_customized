@@ -223,6 +223,8 @@ def karras_sample(
     diffusion,
     model,
     shape,
+    condition_data,
+    condition_mask,
     steps,
     clip_denoised=True,
     progress=False,
@@ -250,6 +252,7 @@ def karras_sample(
         sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
 
     x_T = generator.randn(*shape, device=device) * sigma_max
+    X_T[condition_mask] = condition_data[condition_mask]
 
     sample_fn = {
         "heun": sample_heun,
@@ -282,7 +285,7 @@ def karras_sample(
             denoised = denoised.clamp(-1, 1)
         return denoised
 
-    x_0 = sample_fn(
+    trajectory = sample_fn(
         denoiser,
         x_T,
         sigmas,
@@ -291,7 +294,11 @@ def karras_sample(
         callback=callback,
         **sampler_args,
     )
-    return x_0.clamp(-1, 1)
+
+    # finally make sure conditioning is enforced
+    trajectory[condition_mask] = condition_data[condition_mask]
+
+    return trajectory.clamp(-1, 1)
 
 
 def get_sigmas_karras(n, sigma_min, sigma_max, rho=7.0, device="cpu"):
