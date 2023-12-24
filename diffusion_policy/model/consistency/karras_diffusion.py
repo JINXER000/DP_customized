@@ -6,10 +6,6 @@ import random
 
 import numpy as np
 import torch as th
-import torch.nn as nn
-import torch.nn.functional as F
-from piq import LPIPS
-from torchvision.transforms import RandomCrop
 from . import dist_util
 
 from .nn import mean_flat, append_dims, append_zero
@@ -86,8 +82,9 @@ class KarrasDenoiser:
         model,
         x_start,
         num_scales,
-        local_cond,
-        global_cond,
+        loss_mask,
+        local_cond=None,
+        global_cond=None,
         model_kwargs=None,
         target_model=None,
         teacher_model=None,
@@ -182,22 +179,36 @@ class KarrasDenoiser:
         ## 对应 Eq.5, consistency models
         distiller_target = target_denoise_fn(x_t2, t2, local_cond, global_cond)
         distiller_target = distiller_target.detach()
+        # snrs = self.get_snr(t)
+        # weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
+        # if self.loss_norm == "l1":
+        #     diffs = th.abs(distiller - distiller_target)
+        #     loss = mean_flat(diffs) * weights
+        # elif self.loss_norm == "l2":
+        #     diffs = (distiller - distiller_target) ** 2
+        #     loss = mean_flat(diffs) * weights
+        # else:
+        #     raise ValueError(f"Unknown loss norm {self.loss_norm}")
+        # terms = {}
+        # terms["loss"] = loss
+
+        # ipdb.set_trace()
 
         snrs = self.get_snr(t)
         weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
         if self.loss_norm == "l1":
             diffs = th.abs(distiller - distiller_target)
-            loss = mean_flat(diffs) * weights
+            # loss = mean_flat(diffs) * weights
         elif self.loss_norm == "l2":
             diffs = (distiller - distiller_target) ** 2
-            loss = mean_flat(diffs) * weights
+            # loss = mean_flat(diffs) * weights
         else:
             raise ValueError(f"Unknown loss norm {self.loss_norm}")
 
-        terms = {}
-        terms["loss"] = loss
+        loss = diffs * loss_mask.type(diffs.dtype)
+        loss = mean_flat(loss) * weights
 
-        return terms
+        return loss
 
 
 
@@ -252,7 +263,7 @@ def karras_sample(
         sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
 
     x_T = generator.randn(*shape, device=device) * sigma_max
-    X_T[condition_mask] = condition_data[condition_mask]
+    x_T[condition_mask] = condition_data[condition_mask]
 
     sample_fn = {
         "heun": sample_heun,
