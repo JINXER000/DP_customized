@@ -14,7 +14,7 @@ from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy.model.consistency.karras_diffusion import KarrasDenoiser, karras_sample
 from diffusion_policy.model.consistency.sampler import create_named_schedule_sampler, LossAwareSampler
 from diffusion_policy.model.consistency.scripts_util import create_ema_and_scales_fn
-
+import time
 
 import functools
 import ipdb
@@ -101,8 +101,8 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
 
         self.s_churn = sample.s_churn
         self.s_tmin = sample.s_tmin
-        self.s_tmax = sample.s_tmax
-        self.s_noise = float(sample.s_noise)
+        self.s_tmax = float(sample.s_tmax)
+        self.s_noise = sample.s_noise
         self.steps = sample.steps
 
 
@@ -158,6 +158,8 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             cond_data[:,:To,Da:] = nobs[:,:To]
             cond_mask[:,:To,Da:] = True
 
+        ## generate action_sequence
+        # tic = time.time()
         nsample = karras_sample(
             self.diffusion,
             self.model,
@@ -179,6 +181,9 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             generator=None,
             ts=self.ts,
         ) ## 重点！！ CM 定制！
+        # toc = time.time()
+        # inference_time = toc - tic
+        # print(f"inference time: {inference_time}")
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
@@ -250,7 +255,6 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
 
         # '''---- compute loss ----'''
         t, weights = self.schedule_sampler.sample(trajectory.shape[0], self.device)
-
         ema, num_scales = self.ema_scale_fn(global_step)
 
         ## declare karra_diffusion.py / consistency_loss()
@@ -260,6 +264,7 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
                 self.model,
                 trajectory,
                 num_scales,
+                loss_mask,
                 target_model=self.target_model,
                 local_cond = local_cond,
                 global_cond = global_cond,
@@ -267,18 +272,14 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         else:
             raise ValueError(f"Warning training mode {self.training_mode}")
 
-        losses = compute_losses()
+        loss = compute_losses() ## 重点
 
         if isinstance(self.schedule_sampler, LossAwareSampler):
             self.schedule_sampler.update_with_local_losses(
-                t, losses["loss"].detach()
+                t, loss.detach()
             )
 
-        loss = losses["loss"]
-        loss = loss * loss_mask.type(loss.dtype)
-        loss = loss * weights
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
+        loss = (loss * weights).mean()
 
         return loss
 
