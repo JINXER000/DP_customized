@@ -162,6 +162,8 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             self.diffusion,
             self.model,
             (B, T, Da),
+            cond_data,
+            cond_mask,
             steps=self.steps,
             clip_denoised=self.clip_denoised,
             local_cond=local_cond,
@@ -238,6 +240,14 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
         else:
             trajectory = torch.cat([action, obs], dim=-1)
 
+        # generate impainting mask
+        if self.pred_action_steps_only:
+            condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
+        else:
+            condition_mask = self.mask_generator(trajectory.shape)
+
+        loss_mask = ~condition_mask
+
         # '''---- compute loss ----'''
         t, weights = self.schedule_sampler.sample(trajectory.shape[0], self.device)
 
@@ -264,7 +274,11 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
                 t, losses["loss"].detach()
             )
 
-        loss = (losses["loss"] * weights).mean()
+        loss = losses["loss"]
+        loss = loss * loss_mask.type(loss.dtype)
+        loss = loss * weights
+        loss = reduce(loss, 'b ... -> b (...)', 'mean')
+        loss = loss.mean()
 
         return loss
 
