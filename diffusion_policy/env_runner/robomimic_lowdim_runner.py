@@ -287,11 +287,8 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
                         device=device))
 
                 # run policy
-                tic = time.time()
                 with torch.no_grad():
                     action_dict = policy.predict_action(obs_dict) ## 重点！！
-                toc = time.time()
-                latency.append(toc - tic)
 
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
