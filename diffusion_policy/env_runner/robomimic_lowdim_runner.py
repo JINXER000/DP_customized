@@ -348,10 +348,6 @@ class RobomimicLowdimRunner(BaseLowdimRunner):
             value = np.mean(value)
             log_data[name] = value
 
-        # edited by hang
-        log_data["inference latency"] = latency_mean
-        print(f"test success rate = {log_data['test/mean_score']}")
-
         return log_data
 
     def undo_transform_action(self, action):
