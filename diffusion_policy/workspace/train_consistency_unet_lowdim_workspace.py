@@ -67,21 +67,20 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
     def run(self):
         cfg = copy.deepcopy(self.cfg)
 
-        # resume training
+        ## -- 续训练：加载模型 -- ##
         if cfg.training.resume:
             lastest_ckpt_path = self.get_checkpoint_path()
             if lastest_ckpt_path.is_file():
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
                 self.load_checkpoint(path=lastest_ckpt_path)
 
-        # configure dataset
+        ## -- 设置 dataloader -- ##
         dataset: BaseLowdimDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseLowdimDataset)
         train_dataloader = DataLoader(dataset, **cfg.dataloader)
         normalizer = dataset.get_normalizer()
 
-        # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
@@ -89,7 +88,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
 
-        # configure lr scheduler
+        ## -- 设置 lr scheduler -- ##
         lr_scheduler = get_scheduler(
             cfg.training.lr_scheduler,
             optimizer=self.optimizer,
@@ -97,26 +96,24 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
             num_training_steps=(
                 len(train_dataloader) * cfg.training.num_epochs) \
                     // cfg.training.gradient_accumulate_every,
-            # pytorch assumes stepping LRScheduler every epoch
-            # however huggingface diffusers steps it every batch
             last_epoch=self.global_step-1
         )
 
-        # configure ema
+        ## -- 设置 ema -- ##
         ema: EMAModel = None
         if cfg.training.use_ema:
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
 
-        # configure env runner
+        ## -- 设置 env runner -- ##
         env_runner: BaseLowdimRunner
         env_runner = hydra.utils.instantiate(
             cfg.task.env_runner,
             output_dir=self.output_dir)
         assert isinstance(env_runner, BaseLowdimRunner)
 
-        # configure logging
+        ## -- 设置 wandb monitor -- ##
         wandb_run = wandb.init(
             dir=str(self.output_dir),
             config=OmegaConf.to_container(cfg, resolve=True),
@@ -128,22 +125,23 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
             }
         )
 
-        # configure checkpoint
+        ## -- 设置 configure checkpoint -- ##
         topk_manager = TopKCheckpointManager(
             save_dir=os.path.join(self.output_dir, 'checkpoints'),
             **cfg.checkpoint.topk
         )
 
-        # device transfer
+        ## -- 设置 运算device -- ##
         device = torch.device(cfg.training.device)
         self.model.to(device)
         if self.ema_model is not None:
             self.ema_model.to(device)
         optimizer_to(self.optimizer, device)
 
-        # save batch for sampling
+        ## -- 设置 sampling batch size (可调整) -- ##
         train_sampling_batch = None
 
+        ## -- 设置 debug 模式 -- ##
         if cfg.training.debug:
             cfg.training.num_epochs = 2
             cfg.training.max_train_steps = 3
@@ -155,15 +153,20 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
 
         '''--- training loop ---'''
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
+
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(cfg.training.num_epochs):
+
                 step_log = dict()
-                # ========= train for this epoch ==========
                 train_losses = list()
+
+                # ========= train for this epoch ==========
                 with tqdm.tqdm(train_dataloader, desc=f"Training epoch {self.epoch}", 
                         leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+
                     for batch_idx, batch in enumerate(tepoch):
-                        # device transfer
+
+                        ## -- 设置 batch device 和 sampling_batch -- ##
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
@@ -171,22 +174,26 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                         '''-- compute loss --'''
                         raw_loss = self.model.compute_loss(batch, self.global_step)
 
-                        '''-- optimization -- '''
+                        '''-- backwards -- '''
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 
+                        '''-- optimize -- '''
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
                             self.optimizer.step()
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
                         
-                        # update ema
+                        # update model
                         if cfg.training.use_ema:
                             ema.step(self.model)
 
+                        # update target model
+                        self.model.update_target_ema(self.global_step)
+
                         '''-- log --'''
-                        # logging
+                        # training logging
                         raw_loss_cpu = raw_loss.item()
                         tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
                         train_losses.append(raw_loss_cpu)
@@ -208,7 +215,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                             and batch_idx >= (cfg.training.max_train_steps-1):
                             break
                 
-                # at the end of each epoch
+                # At the end of each epoch
                 # replace train_loss with epoch average
                 train_loss = np.mean(train_losses)
                 step_log['train_loss'] = train_loss
