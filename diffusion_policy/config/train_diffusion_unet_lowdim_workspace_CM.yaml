@@ -43,19 +43,34 @@ policy:
     weight_schedule: "karras"
     schedule_sampler: "uniform"
 
-  ## new for ema_scale_fn()
+  ## config for consistency training
   ema_scale:
     teacher_model_path: ""
     teacher_dropout: 0.1
     training_mode: "consistency_training"
-    target_ema_mode: "fixed"
-    scale_mode: "fixed"
-    total_training_steps: 600000
-    start_ema: 0.0
-    start_scales: 40
-    end_scales: 40
+    target_ema_mode: "adaptive"
+    scale_mode: "progressive"
+    total_training_steps: 800000
+    start_ema: 0.95
+    start_scales: 2
+    end_scales: 200
     distill_steps_per_iter: 50000
     loss_norm: "l2"
+
+
+#  ## config for consistency distillation
+#  ema_scale:
+#    teacher_model_path: ""
+#    teacher_dropout: 0.1
+#    training_mode: "consistency_distillation"
+#    target_ema_mode: "fixed"
+#    scale_mode: "fixed"
+#    total_training_steps: 600000
+#    start_ema: 0.95
+#    start_scales: 40
+#    end_scales: 40
+#    distill_steps_per_iter: 50000
+#    loss_norm: "l2"
 
   sample:
     sampler: "heun"
@@ -78,8 +93,6 @@ policy:
   obs_as_global_cond: ${obs_as_global_cond}
   pred_action_steps_only: ${pred_action_steps_only}
   oa_step_convention: True
-
-
 
   # scheduler.step params
   # predict_epsilon: True
@@ -121,7 +134,7 @@ training:
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1200
+  num_epochs: 1351
   gradient_accumulate_every: 1
   use_ema: True
   # training loop control
