@@ -153,7 +153,7 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
 
-        # training loop
+        '''--- training loop ---'''
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(cfg.training.num_epochs):
@@ -174,8 +174,6 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                         '''-- optimization -- '''
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
-
-                        # print(f"raw_loss={raw_loss.data} | loss={loss.data}")
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
@@ -221,13 +219,13 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                     policy = self.ema_model
                 policy.eval()
 
-                # run rollout
+                # run rollout /50
                 if (self.epoch % cfg.training.rollout_every) == 0:
                     runner_log = env_runner.run(policy)
                     # log all
                     step_log.update(runner_log)
 
-                # run validation
+                # run validation /1
                 if (self.epoch % cfg.training.val_every) == 0:
                     with torch.no_grad():
                         val_losses = list()
@@ -245,15 +243,16 @@ class TrainConsistencyUnetLowdimWorkspaces(BaseWorkspace):
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
 
-                # run diffusion sampling on a training batch
+                # run diffusion sampling on a training batch /5
                 if (self.epoch % cfg.training.sample_every) == 0:
+
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = train_sampling_batch
                         obs_dict = {'obs': batch['obs']}
                         gt_action = batch['action']
                         
-                        result = policy.predict_action(obs_dict)
+                        result = policy.predict_action(obs_dict) ## sampling
                         if cfg.pred_action_steps_only:
                             pred_action = result['action']
                             start = cfg.n_obs_steps - 1
