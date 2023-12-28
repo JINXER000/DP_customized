@@ -76,45 +76,46 @@ class KarrasDenoiser:
         c_in = 1 / (sigma**2 + self.sigma_data**2) ** 0.5
         return c_skip, c_out, c_in
 
-
+    ''' --- Consistency Loss --- '''
     def consistency_losses(
         self,
         model,
         x_start,
         num_scales,
-        loss_mask,
         local_cond=None,
         global_cond=None,
-        model_kwargs=None,
         target_model=None,
         teacher_model=None,
         teacher_diffusion=None,
         noise=None,
     ):
-
-        if model_kwargs is None:
-            model_kwargs = {}
+        ## -- 生成 random noise -- ##
         if noise is None:
             noise = th.randn_like(x_start)
 
         dims = x_start.ndim
 
+        ## ----------------- 定义 denoise 调用函数 ------------------ ##
+
+        ## 调用 denoise（model）
         def denoise_fn(x, t, local_cond, global_cond):
             return self.denoise(model, x, t, local_cond, global_cond)[1]
 
+        ## 调用 denoise（target_model）
         if target_model:
-
             @th.no_grad()
             def target_denoise_fn(x, t, local_cond, global_cond):
                 return self.denoise(target_model, x, t, local_cond, global_cond)[1]
-
         else:
             raise NotImplementedError("Must have a target model")
 
+        ## 调用 denoise（teacher_model）
         if teacher_model:
             @th.no_grad()
             def teacher_denoise_fn(x, t, local_cond, global_cond):
                 return teacher_diffusion.denoise(teacher_model, x, t, local_cond, global_cond)[1]
+
+        ## ------------------ 定义 solver ------------------------ ##
 
         @th.no_grad()
         def heun_solver(samples, t, next_t, x0):
@@ -148,6 +149,9 @@ class KarrasDenoiser:
 
             return samples
 
+        ## ---------------------- 启动计算 ---------------------- ##
+
+        ## 获取 sub-interval boundaries t_i
         indices = th.randint(
             0, num_scales - 1, (x_start.shape[0],), device=x_start.device
         )
@@ -162,40 +166,43 @@ class KarrasDenoiser:
         )
         t2 = t2**self.rho
 
+        ## 获取 x_t, 即 noised trajectory || ？？ 为何要在 trajectory 上添加 noise
         x_t = x_start + noise * append_dims(t, dims)
-
         dropout_state = th.get_rng_state()
-        ##
+
+        ## 获取 f1_\theta(x_t)
         distiller = denoise_fn(x_t, t, local_cond, global_cond)
 
-        ## 对应 Eq.6, estimate x_t2 from x_t
+        ## 利用 solver 获取 x_t2, 对应 Eq.6
         if teacher_model is None:
             x_t2 = euler_solver(x_t, t, t2, x_start).detach()
         else:
             x_t2 = heun_solver(x_t, t, t2, x_start).detach()
 
         th.set_rng_state(dropout_state)
-        ## 对应 Eq.5, consistency models
+
+        ## 获取 f2_\theta(x_t2), 对应 Eq.5
         distiller_target = target_denoise_fn(x_t2, t2, local_cond, global_cond)
         distiller_target = distiller_target.detach()
 
+        ## 获取 weights
         snrs = self.get_snr(t)
         weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
+
+        ## 计算 loss
         if self.loss_norm == "l1":
             diffs = th.abs(distiller - distiller_target)
-            # loss = mean_flat(diffs) * weights
+            loss = mean_flat(diffs) * weights
         elif self.loss_norm == "l2":
             diffs = (distiller - distiller_target) ** 2
-            # loss = mean_flat(diffs) * weights
+            loss = mean_flat(diffs) * weights
         else:
             raise ValueError(f"Unknown loss norm {self.loss_norm}")
 
-        loss = diffs * loss_mask.type(diffs.dtype)
-        loss = mean_flat(loss)* weights
+        term = {}
+        term["loss"] = loss
 
-        return loss
-
-
+        return term
 
     def denoise(self, model, x_t, sigmas, local_cond, global_cond):
         import torch.distributed as dist
