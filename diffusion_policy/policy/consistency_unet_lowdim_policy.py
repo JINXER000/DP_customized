@@ -181,9 +181,6 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             generator=None,
             ts=self.ts,
         ) ## 重点！！ CM 定制！
-        # toc = time.time()
-        # inference_time = toc - tic
-        # print(f"inference time: {inference_time}")
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
