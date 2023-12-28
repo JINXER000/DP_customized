@@ -112,7 +112,6 @@ class KarrasDenoiser:
             raise NotImplementedError("Must have a target model")
 
         if teacher_model:
-
             @th.no_grad()
             def teacher_denoise_fn(x, t, local_cond, global_cond):
                 return teacher_diffusion.denoise(teacher_model, x, t, local_cond, global_cond)[1]
@@ -179,20 +178,6 @@ class KarrasDenoiser:
         ## 对应 Eq.5, consistency models
         distiller_target = target_denoise_fn(x_t2, t2, local_cond, global_cond)
         distiller_target = distiller_target.detach()
-        # snrs = self.get_snr(t)
-        # weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
-        # if self.loss_norm == "l1":
-        #     diffs = th.abs(distiller - distiller_target)
-        #     loss = mean_flat(diffs) * weights
-        # elif self.loss_norm == "l2":
-        #     diffs = (distiller - distiller_target) ** 2
-        #     loss = mean_flat(diffs) * weights
-        # else:
-        #     raise ValueError(f"Unknown loss norm {self.loss_norm}")
-        # terms = {}
-        # terms["loss"] = loss
-
-        # ipdb.set_trace()
 
         snrs = self.get_snr(t)
         weights = get_weightings(self.weight_schedule, snrs, self.sigma_data)
@@ -206,7 +191,7 @@ class KarrasDenoiser:
             raise ValueError(f"Unknown loss norm {self.loss_norm}")
 
         loss = diffs * loss_mask.type(diffs.dtype)
-        loss = mean_flat(loss) * weights
+        loss = mean_flat(loss)* weights
 
         return loss
 
@@ -309,7 +294,8 @@ def karras_sample(
     # finally make sure conditioning is enforced
     trajectory[condition_mask] = condition_data[condition_mask]
 
-    return trajectory.clamp(-1, 1)
+    # return trajectory.clamp(-1,1)
+    return trajectory
 
 
 def get_sigmas_karras(n, sigma_min, sigma_max, rho=7.0, device="cpu"):
