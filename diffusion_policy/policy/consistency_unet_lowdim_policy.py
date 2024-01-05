@@ -196,6 +196,8 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
             generator=None,
             ts=self.ts,
         ) ## 重点！！ CM 定制！
+        # toc = time.time()
+        # print("Sampling took {} seconds".format(toc-tic))
         
         # unnormalize prediction
         naction_pred = nsample[...,:Da]
