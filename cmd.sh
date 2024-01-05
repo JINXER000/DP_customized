@@ -35,3 +35,11 @@ python eval.py --checkpoint data/outputs/2023.11.30/18.51.09_train_diffusion_une
 python eval.py --checkpoint data/outputs/2023.12.01/19.07.36_train_diffusion_unet_lowdim_transport_lowdim/checkpoints/latest.ckpt -o data/eval/transport_lowdim_20231203_190736
 python eval.py --checkpoint data/outputs/2023.12.03/23.21.48_train_diffusion_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_lowdim_20231203_232148
 python eval.py --checkpoint data/outputs/2023.12.05/18.04.47_train_diffusion_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_lowdim_20231205_180447_ddim
+
+## === consistency model === ##
+python train.py --config-name train_diffusion_unet_lowdim_workspace_CM task=square_lowdim
+python train.py --config-name train_diffusion_unet_lowdim_workspace_CM task=pusht_lowdim
+
+python eval.py --checkpoint data/outputs/2023.12.30/14.00.44_train_consistency_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_cm_20231230_latest_r2
+python eval.py --checkpoint data/outputs/2023.12.28/19.17.46_train_consistency_unet_lowdim_pusht_lowdim/checkpoints/latest.ckpt -o data/eval/pushT_cm_20231228_latest_one_step
+
