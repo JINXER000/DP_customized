@@ -73,7 +73,7 @@ policy:
 #    loss_norm: "l2"
 
   sample:
-    sampler: "heun"
+    sampler: "onestep"
     generator: None
     ts: ""
     clip_denoised: True
@@ -134,7 +134,7 @@ training:
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1351
+  num_epochs: 2000
   gradient_accumulate_every: 1
   use_ema: True
   # training loop control
