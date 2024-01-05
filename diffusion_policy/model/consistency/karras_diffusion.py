@@ -238,7 +238,7 @@ def karras_sample(
     sigma_min=0.002,
     sigma_max=80,  # higher for highres?
     rho=7.0,
-    sampler="heun",
+    sampler="onestep",
     s_churn=0.0,
     s_tmin=0.0,
     s_tmax=float("inf"),
@@ -254,14 +254,22 @@ def karras_sample(
     else:
         sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
 
+    ## random input
     x_T = generator.randn(*shape, device=device) * sigma_max
     x_T[condition_mask] = condition_data[condition_mask]
+
+    '''--- hard coding: sampler selection '''
+    ## -- one-step generation --
+    sampler = "onestep"
+    ## -- two-step generation --
+    # sampler = "twostep"
 
     sample_fn = {
         "heun": sample_heun,
         "dpm": sample_dpm,
         "ancestral": sample_euler_ancestral,
         "onestep": sample_onestep,
+        "twostep": sample_twostep,
         "progdist": sample_progdist,
         "euler": sample_euler,
         "multistep": stochastic_iterative_sampler,
@@ -395,6 +403,7 @@ def sample_heun(
     """Implements Algorithm 2 (Heun steps) from Karras et al. (2022)."""
     s_in = x.new_ones([x.shape[0]])
     indices = range(len(sigmas) - 1)
+
     if progress:
         from tqdm.auto import tqdm
 
@@ -534,9 +543,24 @@ def sample_onestep(
     progress=False,
     callback=None,
 ):
-    """Single-step generation from a distilled model."""
+    """Single-step generation from a consistency model."""
     s_in = x.new_ones([x.shape[0]])
     return distiller(x, sigmas[0] * s_in)
+
+@th.no_grad()
+def sample_twostep(
+    distiller,
+    x,
+    sigmas,
+    generator=None,
+    progress=False,
+    callback=None
+):
+    """Two-step generation from a consistency model."""
+    s_0 = x.new_ones([x.shape[0]])
+    for i in range(2):
+        x = distiller(x, sigmas[0] * s_0)
+    return x
 
 
 @th.no_grad()
