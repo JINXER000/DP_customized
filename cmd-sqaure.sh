@@ -10,6 +10,8 @@
 ## === image === ##
 python train.py --config-name train_diffusion_unet_ddim_image_workspace task=square_image_abs
 
+python train.py --config-name train_diffusion_transformer_image_workspace task=square_image_abs
+
 
 ## === Evaluation === ##
 # python eval.py --checkpoint data/outputs/2023.11.30/18.51.09_train_diffusion_unet_lowdim_pusht_lowdim/checkpoints/latest.ckpt -o data/eval/pusht_lowdim_20231103_185109
