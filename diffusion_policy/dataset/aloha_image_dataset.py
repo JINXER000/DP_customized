@@ -160,7 +160,6 @@ class AlohaImageDataset(BaseImageDataset):
                 all_cam_images = np.stack(all_cam_images, axis=0)
             episode = {
                 "qpos": qpos,
-                "qvel": qvel,
                 "action": action,
                 "images": all_cam_images.squeeze(),  # XXX: assume only one camera
             }
@@ -378,10 +377,11 @@ def main():
         str(pathlib.Path(dataset_dir).expanduser()),
         shape_meta,
         horizon=5,
-        use_cache=True,
+        use_cache=False,
     )
 
     # from matplotlib import pyplot as plt
+    print(dataset.replay_buffer["images"].shape)
     normalizer = dataset.get_normalizer()
     nactions = normalizer['action'].normalize(dataset.replay_buffer['action'][:])
     diff = np.diff(nactions, axis=0)
