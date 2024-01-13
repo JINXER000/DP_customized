@@ -41,8 +41,8 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_resnet
       name: resnet18
       weights: null
-    resize_shape: null
-    crop_shape: [76, 76]
+    resize_shape: [240, 320]
+    crop_shape: [220, 300]
     # constant center crop
     random_crop: True
     use_group_norm: True
@@ -101,7 +101,7 @@ training:
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1000
+  num_epochs: 1010
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.

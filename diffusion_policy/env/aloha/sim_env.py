@@ -7,11 +7,13 @@ from dm_control import mujoco
 from dm_control.rl import control
 from dm_control.suite import base
 
-from act.constants import DT, XML_DIR, START_ARM_POSE
-from act.constants import PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN
-from act.constants import MASTER_GRIPPER_POSITION_NORMALIZE_FN
-from act.constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN
-from act.constants import PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
+from diffusion_policy.env.aloha.constants import (
+    DT, XML_DIR, START_ARM_POSE,
+    PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN,
+    MASTER_GRIPPER_POSITION_NORMALIZE_FN,
+    PUPPET_GRIPPER_POSITION_NORMALIZE_FN,
+    PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN,
+)
 
 import IPython
 
@@ -65,23 +67,6 @@ def make_sim_env(task_name):
     else:
         raise NotImplementedError
 
-    # for compatibility with diffusion policy. TODO: add env wrapper
-    env.action_space = spaces.Box(-np.inf, np.inf, shape=(14,), dtype=np.float32)
-    env.observation_space = spaces.Dict(
-        {
-            "qpos": spaces.Box(-np.inf, np.inf, shape=(14,), dtype=np.float32),
-            "qvel": spaces.Box(-np.inf, np.inf, shape=(14,), dtype=np.float32),
-            "images": spaces.Dict(
-                {
-                    "top": spaces.Box(0, 255, shape=(480, 640, 3), dtype=np.uint8),
-                    "angle": spaces.Box(0, 255, shape=(480, 640, 3), dtype=np.uint8),
-                    "vis": spaces.Box(0, 255, shape=(480, 640, 3), dtype=np.uint8),
-                }
-            ),
-        }
-    )
-    env.metadata = {"render.modes": ["rgb_array"], "video.frames_per_second": 10}
-    env.seed = lambda x: x  # dummy seed function
     return env
 
 

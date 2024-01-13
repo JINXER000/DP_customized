@@ -7,9 +7,10 @@ import tqdm
 import dill
 import math
 import wandb.sdk.data_types.video as wv
-from diffusion_policy.env.pusht.pusht_image_env import PushTImageEnv
-from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
+import gym
+import gym.spaces as spaces
 from diffusion_policy.gym_util.sync_vector_env import SyncVectorEnv
+from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from diffusion_policy.gym_util.video_recording_wrapper import (
     VideoRecordingWrapper,
@@ -19,7 +20,7 @@ from diffusion_policy.gym_util.video_recording_wrapper import (
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
-
+from diffusion_policy.env.aloha.aloha_image_wrapper import AlohaImageWrapper
 from diffusion_policy.env.aloha.sim_env import make_sim_env, BOX_POSE
 from diffusion_policy.env.aloha.act_utils import sample_box_pose, sample_insertion_pose
 
@@ -29,6 +30,7 @@ class AlohaImageRunner(BaseImageRunner):
         self,
         output_dir,
         task_name,
+        shape_meta: dict,
         n_train=0,
         n_train_vis=0,
         train_start_seed=0,
@@ -55,7 +57,11 @@ class AlohaImageRunner(BaseImageRunner):
             env = make_sim_env(task_name)
             return MultiStepWrapper(
                 VideoRecordingWrapper(
-                    env,
+                    AlohaImageWrapper(
+                        env=env,
+                        shape_meta=shape_meta,
+                        render_obs_key="top"
+                    ),
                     video_recoder=VideoRecorder.create_h264(
                         fps=fps,
                         codec="h264",
@@ -130,7 +136,32 @@ class AlohaImageRunner(BaseImageRunner):
             env_prefixs.append("test/")
             env_init_fn_dills.append(dill.dumps(init_fn))
 
-        env = SyncVectorEnv(env_fns)
+        def dummy_env_fn():
+            # Avoid importing or using env in the main process
+            # to prevent OpenGL context issue with fork.
+            # Create a fake env whose sole purpos is to provide 
+            # obs/action spaces and metadata.
+            env = gym.Env()
+            env.observation_space = spaces.Dict({
+                "qpos": spaces.Box(-np.inf, np.inf, shape=(14,), dtype=np.float32),
+                "images": spaces.Box(0.0, 1.0, shape=(3, 480, 640), dtype=np.float32),
+            })
+            env.action_space = gym.spaces.Box(
+                -np.inf, np.inf, shape=(14,), dtype=np.float32
+            )
+            env.metadata = {
+                'render.modes': ['rgb_array'],
+                'video.frames_per_second': 10
+            }
+            env = MultiStepWrapper(
+                env=env,
+                n_obs_steps=n_obs_steps,
+                n_action_steps=n_action_steps,
+                max_episode_steps=max_steps
+            )
+            return env
+
+        env = SyncVectorEnv(env_fns)  #, dummy_env_fn=dummy_env_fn)
 
         # test env
         # env.reset(seed=env_seeds)
