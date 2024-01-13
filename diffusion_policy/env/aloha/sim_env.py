@@ -19,7 +19,7 @@ import IPython
 
 e = IPython.embed
 
-BOX_POSE = [None]  # to be changed from outside
+BOX_POSE = [None] * 100  # to be changed from outside
 
 
 def make_sim_env(task_name):
@@ -169,7 +169,12 @@ class TransferCubeTask(BimanualViperXTask):
             physics.named.data.qpos[:16] = START_ARM_POSE
             np.copyto(physics.data.ctrl, START_ARM_POSE)
             assert BOX_POSE[0] is not None
-            physics.named.data.qpos[-7:] = BOX_POSE[0]
+
+            # extract elements in BOX_POSE which are not None
+            valid_poses = [p for p in BOX_POSE if p is not None]
+            # select one of the valid poses with self.random (which is a RandomState)
+            ind = self.random.choice(len(valid_poses))
+            physics.named.data.qpos[-7:] = valid_poses[ind]
             # print(f"{BOX_POSE=}")
         super().initialize_episode(physics)
 

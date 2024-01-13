@@ -14,7 +14,7 @@ class AlohaImageWrapper(gym.Env):
         self,
         env: Environment,
         shape_meta: dict,
-        render_obs_key="top",
+        render_obs_key="angle",
     ):
         self.env = env
         self.render_obs_key = render_obs_key
@@ -60,7 +60,8 @@ class AlohaImageWrapper(gym.Env):
         return obs
 
     def seed(self, seed=None):
-        np.random.seed(seed=seed)
+        assert isinstance(self.env._task._random, np.random.RandomState)
+        self.env._task._random = np.random.RandomState(seed)
         self._seed = seed
 
     def reset(self):

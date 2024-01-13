@@ -19,8 +19,8 @@ env_runner:
   n_train: 0
   n_train_vis: 0
   train_start_seed: 0
-  n_test: 2
-  n_test_vis: 1
+  n_test: 10
+  n_test_vis: 4
   task_name: sim_transfer_cube_scripted
   test_start_seed: 100000
   max_steps: 400

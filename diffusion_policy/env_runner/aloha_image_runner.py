@@ -60,7 +60,7 @@ class AlohaImageRunner(BaseImageRunner):
                     AlohaImageWrapper(
                         env=env,
                         shape_meta=shape_meta,
-                        render_obs_key="top"
+                        render_obs_key="angle"
                     ),
                     video_recoder=VideoRecorder.create_h264(
                         fps=fps,
@@ -216,7 +216,7 @@ class AlohaImageRunner(BaseImageRunner):
             # start rollout
             ### set task
             if "sim_transfer_cube" in self.task_name:
-                BOX_POSE[0] = sample_box_pose()  # used in sim reset
+                BOX_POSE[:n_envs] = [sample_box_pose() for _ in range(n_envs)]  # used in sim reset
             elif "sim_insertion" in self.task_name:
                 BOX_POSE[0] = np.concatenate(
                     sample_insertion_pose()
