@@ -53,7 +53,7 @@ class AlohaImageWrapper(gym.Env):
                 # h, w, c --> c, h, w
                 # [0, 255] --> [0, 1]
                 obs[key] = np.moveaxis(
-                    raw_obs["images"][self.render_obs_key].astype(np.float32) / 255.0, -1, 0
+                    raw_obs["images"]["top"].astype(np.float32) / 255.0, -1, 0
                 )
             else:
                 obs[key] = raw_obs[key]
