@@ -204,15 +204,15 @@ class TransferCubeTask(BimanualViperXTask):
         ) in all_contact_pairs
         touch_table = ("red_box", "table") in all_contact_pairs
 
-        reward = 0
+        reward = 0.0
         if touch_right_gripper:
-            reward = 1
+            reward = 1.0
         if touch_right_gripper and not touch_table:  # lifted
-            reward = 2
+            reward = 2.0
         if touch_left_gripper:  # attempted transfer
-            reward = 3
+            reward = 3.0
         if touch_left_gripper and not touch_table:  # successful transfer
-            reward = 4
+            reward = 4.0
         return reward
 
 

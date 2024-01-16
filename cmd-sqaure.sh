@@ -14,7 +14,4 @@ python train.py --config-name train_diffusion_unet_ddim_image_workspace task=sim
 
 
 ## === Evaluation === ##
-# python eval.py --checkpoint data/outputs/2023.11.30/18.51.09_train_diffusion_unet_lowdim_pusht_lowdim/checkpoints/latest.ckpt -o data/eval/pusht_lowdim_20231103_185109
-# python eval.py --checkpoint data/outputs/2023.12.01/19.07.36_train_diffusion_unet_lowdim_transport_lowdim/checkpoints/latest.ckpt -o data/eval/transport_lowdim_20231203_190736
-# python eval.py --checkpoint data/outputs/2023.12.03/23.21.48_train_diffusion_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_lowdim_20231203_232148
-# python eval.py --checkpoint data/outputs/2023.12.05/18.04.47_train_diffusion_unet_lowdim_square_lowdim/checkpoints/latest.ckpt -o data/eval/square_lowdim_20231205_180447_ddim
+# python eval.py --checkpoint data/outputs/2024.01.14/21.39.52_train_diffusion_unet_image_sim_transfer_cube_scripted/checkpoints/latest.ckpt -o data/eval/sim_cube_transfer_scripted/2024.01.14_21.39.52

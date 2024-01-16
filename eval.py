@@ -31,8 +31,11 @@ def main(checkpoint, output_dir, device):
     payload = torch.load(open(checkpoint, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
 
-    ## edited by hang: for evaluation
-    cfg.policy.num_inference_steps = 100
+    ## edited by hang: for evaluation, 10-ddim, 100-ddpm
+    cfg.policy.num_inference_steps = 10
+
+    ## by dongjie: more test envs for eval
+    cfg.task.env_runner.n_test = 50
 
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg, output_dir=output_dir)
