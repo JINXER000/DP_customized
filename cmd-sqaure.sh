@@ -10,11 +10,11 @@
 ## === image === ##
 python train.py \
     --config-name train_diffusion_unet_ddim_image_workspace \
-    task=sim_transfer_cube_scripted
+    task=sim_insertion_scripted
 
 python train.py \
     --config-name train_diffusion_unet_ddim_image_workspace \
-    task=sim_transfer_cube_human
+    task=sim_transfer_cube_scripted
 
 # python train.py --config-name train_diffusion_transformer_image_workspace task=square_image_abs
 

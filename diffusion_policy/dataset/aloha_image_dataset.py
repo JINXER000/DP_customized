@@ -356,7 +356,8 @@ def _convert_to_replay(
 
 
 def main():
-    dataset_dir = "~/bimanual/Diffusion-Policy/data/aloha/datasets/sim_transfer_cube_scripted"
+    task = "sim_insertion_scripted"
+    dataset_dir = "~/bimanual/Diffusion-Policy/data/aloha/datasets/" + task
     shape_meta = {
         "obs": {
             "images": {
@@ -378,6 +379,7 @@ def main():
         shape_meta,
         horizon=5,
         use_cache=False,
+        task=task
     )
 
     # from matplotlib import pyplot as plt

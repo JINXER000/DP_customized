@@ -218,9 +218,9 @@ class AlohaImageRunner(BaseImageRunner):
             if "sim_transfer_cube" in self.task_name:
                 BOX_POSE[:n_envs] = [sample_box_pose() for _ in range(n_envs)]  # used in sim reset
             elif "sim_insertion" in self.task_name:
-                BOX_POSE[0] = np.concatenate(
-                    sample_insertion_pose()
-                )  # used in sim reset
+                BOX_POSE[:n_envs] = [
+                    np.concatenate(sample_insertion_pose()) for _ in range(n_envs)
+                ]  # used in sim reset
             obs = env.reset()
             past_action = None
             policy.reset()

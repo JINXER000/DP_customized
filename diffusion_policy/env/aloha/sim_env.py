@@ -229,7 +229,13 @@ class InsertionTask(BimanualViperXTask):
             physics.named.data.qpos[:16] = START_ARM_POSE
             np.copyto(physics.data.ctrl, START_ARM_POSE)
             assert BOX_POSE[0] is not None
-            physics.named.data.qpos[-7 * 2 :] = BOX_POSE[0]  # two objects
+
+            # extract elements in BOX_POSE which are not None
+            valid_poses = [p for p in BOX_POSE if p is not None]
+            # select one of the valid poses with self.random (which is a RandomState)
+            ind = self.random.choice(len(valid_poses))
+
+            physics.named.data.qpos[-7 * 2 :] = BOX_POSE[ind]  # two objects
             # print(f"{BOX_POSE=}")
         super().initialize_episode(physics)
 
@@ -275,22 +281,22 @@ class InsertionTask(BimanualViperXTask):
         )
         pin_touched = ("red_peg", "pin") in all_contact_pairs
 
-        reward = 0
+        reward = 0.0
         if touch_left_gripper and touch_right_gripper:  # touch both
-            reward = 1
+            reward = 1.0
         if (
             touch_left_gripper
             and touch_right_gripper
             and (not peg_touch_table)
             and (not socket_touch_table)
         ):  # grasp both
-            reward = 2
+            reward = 2.0
         if (
             peg_touch_socket and (not peg_touch_table) and (not socket_touch_table)
         ):  # peg and socket touching
-            reward = 3
+            reward = 3.0
         if pin_touched:  # successful insertion
-            reward = 4
+            reward = 4.0
         return reward
 
 
