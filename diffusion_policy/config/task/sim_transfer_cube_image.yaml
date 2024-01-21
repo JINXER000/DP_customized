@@ -26,7 +26,7 @@ env_runner:
   max_steps: 400
   n_obs_steps: ${n_obs_steps}
   n_action_steps: ${n_action_steps}
-  fps: 20
+  fps: 50
   past_action: ${past_action_visible}
   n_envs: null
 

@@ -1,4 +1,5 @@
 import pathlib
+import numpy as np
 
 ### Task parameters
 DATA_DIR = "data/act"
@@ -169,3 +170,32 @@ PUPPET_JOINT2POS = lambda x: PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN(
 )
 
 MASTER_GRIPPER_JOINT_MID = (MASTER_GRIPPER_JOINT_OPEN + MASTER_GRIPPER_JOINT_CLOSE) / 2
+
+
+### Robot constants
+class vx300s:
+    Slist = np.array([[0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, -0.12705, 0.0, 0.0],
+                      [0.0, 1.0, 0.0, -0.42705, 0.0, 0.05955],
+                      [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0],
+                      [0.0, 1.0, 0.0, -0.42705, 0.0, 0.35955],
+                      [1.0, 0.0, 0.0, 0.0, 0.42705, 0.0]]).T
+
+    M = np.array([[1.0, 0.0, 0.0, 0.536494],
+                  [0.0, 1.0, 0.0, 0.0],
+                  [0.0, 0.0, 1.0, 0.42705],
+                  [0.0, 0.0, 0.0, 1.0]])
+    
+LEFT_BASE_POSE = np.array(
+    [[1.0, 0.0, 0.0, -0.469],
+     [0.0, 1.0, 0.0, 0.5],
+     [0.0, 0.0, 1.0, 0.0],
+     [0.0, 0.0, 0.0, 1.0]]
+)
+
+RIGHT_BASE_POSE = np.array(
+    [[-1.0, 0.0, 0.0, 0.469],
+     [ 0.0, -1.0, 0.0, 0.5],
+     [ 0.0, 0.0, 1.0, 0.0],
+     [ 0.0, 0.0, 0.0, 1.0]]
+)
