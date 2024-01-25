@@ -199,3 +199,8 @@ RIGHT_BASE_POSE = np.array(
      [ 0.0, 0.0, 1.0, 0.0],
      [ 0.0, 0.0, 0.0, 1.0]]
 )
+
+### Judgement thresholds
+GRIPPER_EPSILON = 0.2
+EE_VEL_EPSILONE = 0.03
+EE_DIST_BOUND = 0.1

@@ -22,6 +22,7 @@ from filelock import FileLock
 from threadpoolctl import threadpool_limits
 import concurrent.futures
 import multiprocessing
+import matplotlib.pyplot as plt
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.common.replay_buffer import ReplayBuffer
 from diffusion_policy.common.sampler import (
@@ -34,7 +35,8 @@ from diffusion_policy.dataset.base_dataset import BaseImageDataset
 from diffusion_policy.codecs.imagecodecs_numcodecs import register_codecs, Jpeg2k
 from diffusion_policy.common.normalize_util import get_image_range_normalizer
 from diffusion_policy.env.aloha.constants import (
-    JOINT_NAMES, DT, vx300s, LEFT_BASE_POSE, RIGHT_BASE_POSE
+    JOINT_NAMES, DT, vx300s, LEFT_BASE_POSE, RIGHT_BASE_POSE,
+    GRIPPER_EPSILON, EE_VEL_EPSILONE, EE_DIST_BOUND
 )
 
 import modern_robotics as mr
@@ -361,70 +363,74 @@ def _convert_to_replay(
     return replay_buffer
 
 
-def _find_keypose_idx(trajectory, stopping_epsilon=0.1) -> List[int]:
+def _smooth(data, window_size=5):
+    if window_size % 2 == 0:
+        print("window size must be odd, add 1 autonomously.")
+        window_size += 1
+    data = np.pad(data, (window_size // 2, window_size // 2), mode='edge')
+    return np.convolve(data, np.ones(window_size) / window_size, mode='valid')
+
+
+def _find_keypose_idx(
+    gripper: np.ndarray,
+    ee_vel: np.ndarray,
+    window_size: int=5,
+    gripper_epsilon=GRIPPER_EPSILON,
+    vel_epsilon=EE_VEL_EPSILONE,
+) -> List[int]:
     '''
     Locate keypose indices in a trajectory.
 
     Args:
-        trajectory: dict-like observation
-            key: obs_key name
-            value: (T, dim_1, dim_2, ...)
-        epsilon: threshold for detecting a keypose.
+        gripper_: array of normalized gripper openness wrt time, (T,)
+            0 - totally closed, 1 - totally open
+        ee_vel: array of end-effector velocity
 
     Returns:
-        A list of indices of keyposes.
+        list of indices of keyposes for both arms.
     '''
-    pass
+    keypose_indices = list()
+    T = len(gripper)
+    # smooth to remove noise
+    gripper = _smooth(gripper, window_size=window_size)
+    ee_vel = _smooth(ee_vel, window_size=5)
+    gripper_change_rate = np.diff(gripper) / DT
+    curr_state = "stable"  # opening, closing, stable
+    problem = False
+    for i in range(T-1):
+        if i == 0:
+            keypose_indices.append(i)
+        else:
+            if curr_state == "stable":
+                if gripper_change_rate[i] > gripper_epsilon:
+                    curr_state = "opening"
+                    keypose_indices.append(i)
+                elif gripper_change_rate[i] < -gripper_epsilon:
+                    curr_state = "closing"
+                    keypose_indices.append(i)
+            elif curr_state == "opening":
+                if abs(gripper_change_rate[i]) < gripper_epsilon:
+                    curr_state = "stable"
+                elif gripper_change_rate[i] < -gripper_epsilon:
+                    print(f"why the gripper is closing when it is opening at {i}? ")
+                    problem = True
+            elif curr_state == "closing":
+                if abs(gripper_change_rate[i]) < gripper_epsilon:
+                    curr_state = "stable"
+                    keypose_indices.append(i)
+                elif gripper_change_rate[i] > gripper_epsilon:
+                    print(f"why the gripper is opening when it is closing at {i}?")
+                    problem = True
+            if keypose_indices[-1] != i:
+                ## gripper state is not key, check velocity
+                if ee_vel[i-1] > vel_epsilon and ee_vel[i] < vel_epsilon:
+                    keypose_indices.append(i)
 
-'''
-# Identify way-point in each RLBench Demo
-def _is_stopped(demo, i, obs, stopped_buffer, delta):
-    next_is_not_final = i == (len(demo) - 2)
-    # gripper_state_no_change = i < (len(demo) - 2) and (
-    #     obs.gripper_open == demo[i + 1].gripper_open
-    #     and obs.gripper_open == demo[i - 1].gripper_open
-    #     and demo[i - 2].gripper_open == demo[i - 1].gripper_open
-    # )
-    gripper_state_no_change = i < (len(demo) - 2) and (
-        obs.gripper_open == demo[i + 1].gripper_open
-        and obs.gripper_open == demo[max(0, i - 1)].gripper_open
-        and demo[max(0, i - 2)].gripper_open == demo[max(0, i - 1)].gripper_open
-    )
-    small_delta = np.allclose(obs.joint_velocities, 0, atol=delta)
-    stopped = (
-        stopped_buffer <= 0
-        and small_delta
-        and (not next_is_not_final)
-        and gripper_state_no_change
-    )
-    return stopped
-
-
-def keypoint_discovery(demo: Demo, stopping_delta=0.1) -> List[int]:
-    episode_keypoints = []
-    prev_gripper_open = demo[0].gripper_open
-    stopped_buffer = 0
-
-    for i, obs in enumerate(demo):
-        stopped = _is_stopped(demo, i, obs, stopped_buffer, stopping_delta)
-        stopped_buffer = 4 if stopped else stopped_buffer - 1
-        # If change in gripper, or end of episode.
-        last = i == (len(demo) - 1)
-        if i != 0 and (obs.gripper_open != prev_gripper_open or last or stopped):
-            episode_keypoints.append(i)
-        prev_gripper_open = obs.gripper_open
-
-    if (
-        len(episode_keypoints) > 1
-        and (episode_keypoints[-1] - 1) == episode_keypoints[-2]
-    ):
-        episode_keypoints.pop(-2)
-
-    return episode_keypoints
-'''
+    keypose_indices.append(T-1)            
+    return keypose_indices, problem
 
 
-def save_videos(video, dt, video_path=None):
+def _save_videos(video, dt, video_path=None):
     if isinstance(video, list):
         cam_names = list(video[0].keys())
         h, w, _ = video[0][cam_names[0]].shape
@@ -459,110 +465,139 @@ def save_videos(video, dt, video_path=None):
         print(f'Saved video to: {video_path}')
 
 
-def visualize_ee_and_gripper(
+def _plot_ee_and_gripper(
+    dataset_dir: str,
+    i: int,
+):
+    dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
+    with h5py.File(dataset_path, "r") as demo:
+        ### load images and save videos
+        this_image = dict()
+        for cam_name in demo[f'/observations/images/'].keys():
+            this_image[cam_name] = demo[f'/observations/images/{cam_name}'][:].astype(np.uint8)
+        # _save_videos(this_image, DT, video_path=f'{dataset_dir}/episode_{i}.mp4')
+
+        # extract qpos and gripper pos
+        this_qpos_left = demo["observations/qpos"][:, :6].astype(np.float32)
+        this_qpos_right = demo["observations/qpos"][:, 6+1:6+7].astype(np.float32)
+        this_gripper_left = demo["observations/qpos"][:, 6].astype(np.float32)
+        this_gripper_right = demo["observations/qpos"][:, 13].astype(np.float32)
+
+        this_gripper_act_left = demo["action"][:, 6].astype(np.float32)
+        this_gripper_act_right = demo["action"][:, 13].astype(np.float32)
+
+        ### pos of x, y, z & vel, gripper, abs_vel, ee dist and ee dist rate
+        num_t, num_dim = this_qpos_left.shape[0], 3 + 3 + 1 + 1 + 2
+        h, w = 2, num_dim
+        num_figs = num_dim
+
+        ### cpmpute and plot ee
+        this_ee_pos_left = np.zeros((num_t, 3))
+        this_ee_pos_right = np.zeros((num_t, 3))
+        for j in range(num_t):
+            # pos
+            left_pose_mat = mr.FKinSpace(vx300s.M, vx300s.Slist, this_qpos_left[j])
+            right_pose_mat = mr.FKinSpace(vx300s.M, vx300s.Slist, this_qpos_right[j])
+            this_ee_pos_left[j] = np.dot(LEFT_BASE_POSE, left_pose_mat)[:3, 3]
+            this_ee_pos_right[j] = np.dot(RIGHT_BASE_POSE, right_pose_mat)[:3, 3]
+
+        this_ee_dpos_left = np.diff(this_ee_pos_left, axis=0) / DT
+        this_ee_dpos_right = np.diff(this_ee_pos_right, axis=0) / DT
+
+        this_ee_vel_norm_left = np.linalg.norm(this_ee_dpos_left, axis=-1)
+        this_ee_vel_norm_right = np.linalg.norm(this_ee_dpos_right, axis=-1)
+
+        this_ee_dist = np.linalg.norm(this_ee_pos_left - this_ee_pos_right, axis=-1)
+        this_ee_ddist = np.diff(this_ee_dist) / DT
+
+        window_size = 5
+        if i == 45:
+            window_size = 31
+        keypose_left, problem_left = _find_keypose_idx(this_gripper_left, this_ee_vel_norm_left, window_size=window_size)
+        keypose_right, problem_right = _find_keypose_idx(this_gripper_right, this_ee_vel_norm_right, window_size=window_size)
+        if problem_left:
+            print(f'left problem in episode {i}')
+        if problem_right:
+            print(f'right problem in episode {i}')
+
+        idx_ylabel_map = {
+            0: r"$x$ [m]",
+            1: r"$y$ [m]",
+            2: r"$z$ [m]",
+            3: r"$\dot{x}$ [m/s]",
+            4: r"$\dot{y}$ [m/s]",
+            5: r"$\dot{z}$ [m/s]",
+            6: "gripper",
+            7: r"$v_{\rm ee}$ [m/s]",
+            8: r"$d_{\rm ee}$ [m]",
+            9: r"$\dot{d}_{\rm ee} [m/s]$",
+        }
+
+        fig, axs = plt.subplots(num_figs, 1, figsize=(w, h * num_figs))
+        t = np.arange(num_t) * DT
+        for idx_dim in range(num_dim):
+            ax = axs[idx_dim]
+            if idx_dim < 3:
+                ### x, y, z
+                ax.plot(t, this_ee_pos_left[:, idx_dim], "r", label="left")
+                ax.plot(t, this_ee_pos_right[:, idx_dim], "b", label="right")
+                ax.legend()
+            elif 3 <= idx_dim < 6:
+                ### xdot, ydot, zdot
+                ax.plot(t[:-1], this_ee_dpos_left[:, idx_dim-3], "r", label="left")
+                ax.plot(t[:-1], this_ee_dpos_right[:, idx_dim-3], "b", label="right")
+                ax.legend()
+                # ax.set_ylim([-0.5, 0.5])
+            elif idx_dim == 6:
+                ### gripper
+                ax.plot(t, this_gripper_left, "r", label="left")
+                ax.plot(t, this_gripper_right, "b", label="right")
+                left_first_diff = np.diff(_smooth(this_gripper_left)) / DT
+                right_first_diff = np.diff(_smooth(this_gripper_right)) / DT
+                ax.plot(t[:-1], left_first_diff, "r--")
+                ax.plot(t[:-1], right_first_diff, "b--")
+                ax.plot(t, this_gripper_act_left, "r:")
+                ax.plot(t, this_gripper_act_right, "b:")
+                ax.plot(t, np.ones_like(t) * GRIPPER_EPSILON, 'k--')
+                ax.plot(t, -np.ones_like(t) * GRIPPER_EPSILON, 'k--')
+                ax.scatter(t[keypose_left], this_gripper_left[keypose_left], marker='x', color='r')
+                ax.scatter(t[keypose_right], this_gripper_right[keypose_right], marker='x', color='b')
+                ax.legend()
+            elif idx_dim == 7:
+                ### ee vel
+                ax.plot(t[:-1], this_ee_vel_norm_left, "r", label="left")
+                ax.plot(t[:-1], this_ee_vel_norm_right, "b", label="right")
+                ax.plot(t, np.ones_like(t) * EE_VEL_EPSILONE, 'k--')
+                # set y limit
+                ax.legend()
+                ax.set_ylim([0, 0.1])
+            elif idx_dim == 8:
+                ### ee dist
+                ax.plot(t, this_ee_dist, "r")
+                ax.plot(t, np.ones_like(t) * EE_DIST_BOUND, 'k--')
+            elif idx_dim == 9:
+                ### ee dist rate
+                ax.plot(t[:-1], this_ee_ddist, "b")
+                ax.set_ylim([-1, 2])
+            ax.set_xlabel("time [s]")
+            ax.set_ylabel(idx_ylabel_map[idx_dim])
+
+        plt.tight_layout()
+        plt.savefig(f'{dataset_dir}/episode_{i}_ee.png', dpi=300)
+        plt.close()
+
+
+def iter_over_demos(
     dataset_dir: str,
     num_episodes: int = 50,
 ):
     '''plot vel and gripper curve for keypose finding
     '''
-
-    import matplotlib.pyplot as plt
-    
     dataset_dir = str(pathlib.Path(dataset_dir).expanduser())
-    for i in tqdm(range(num_episodes)):
-        dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
-        with h5py.File(dataset_path, "r") as demo:
-            ### load images and save videos
-            this_image = dict()
-            for cam_name in demo[f'/observations/images/'].keys():
-                this_image[cam_name] = demo[f'/observations/images/{cam_name}'][:].astype(np.uint8)
-            save_videos(this_image, DT, video_path=f'{dataset_dir}/episode_{i}.mp4')
-
-            # extract qpos and gripper pos
-            this_qpos_left = demo["observations/qpos"][:, :6].astype(np.float32)
-            this_qpos_right = demo["observations/qpos"][:, 6+1:6+7].astype(np.float32)
-            this_left_gripper = demo["observations/qpos"][:, 6].astype(np.float32)
-            this_right_gripper = demo["observations/qpos"][:, 13].astype(np.float32)
-
-            ### pos of x, y, z & vel, gripper, abs_vel, ee dist and ee dist rate
-            num_t, num_dim = this_qpos_left.shape[0], 3 + 3 + 1 + 1 + 2
-            h, w = 2, num_dim
-            num_figs = num_dim
-            fig, axs = plt.subplots(num_figs, 1, figsize=(w, h * num_figs))
-            
-            ### cpmpute and plot ee
-            this_ee_pos_left = np.zeros((num_t, 3))
-            this_ee_pos_right = np.zeros((num_t, 3))
-            for j in range(num_t):
-                # pos
-                left_pose_mat = mr.FKinSpace(vx300s.M, vx300s.Slist, this_qpos_left[j])
-                right_pose_mat = mr.FKinSpace(vx300s.M, vx300s.Slist, this_qpos_right[j])
-                this_ee_pos_left[j] = np.dot(LEFT_BASE_POSE, left_pose_mat)[:3, 3]
-                this_ee_pos_right[j] = np.dot(RIGHT_BASE_POSE, right_pose_mat)[:3, 3]
-
-            this_ee_dpos_left = np.diff(this_ee_pos_left, axis=0) / DT
-            this_ee_dpos_right = np.diff(this_ee_pos_right, axis=0) / DT
-
-            this_ee_vel_norm_left = np.linalg.norm(this_ee_dpos_left, axis=-1)
-            this_ee_vel_norm_right = np.linalg.norm(this_ee_dpos_right, axis=-1)
-
-            this_ee_dist = np.linalg.norm(this_ee_pos_left - this_ee_pos_right, axis=-1)
-            this_ee_ddist = np.diff(this_ee_dist) / DT
-
-            idx_ylabel_map = {
-                0: r"$x$ [m]",
-                1: r"$y$ [m]",
-                2: r"$z$ [m]",
-                3: r"$\dot{x}$ [m/s]",
-                4: r"$\dot{y}$ [m/s]",
-                5: r"$\dot{z}$ [m/s]",
-                6: "gripper",
-                7: r"$v_{\rm ee}$ [m/s]",
-                8: r"$d_{\rm ee}$ [m]",
-                9: r"$\dot{d}_{\rm ee} [m/s]$",
-            }
-
-            t = np.arange(num_t) * DT
-            for idx_dim in range(num_dim):
-                ax = axs[idx_dim]
-                if idx_dim < 3:
-                    ### x, y, z
-                    ax.plot(t, this_ee_pos_left[:, idx_dim], "r", label="left")
-                    ax.plot(t, this_ee_pos_right[:, idx_dim], "b", label="right")
-                    ax.legend()
-                elif 3 <= idx_dim < 6:
-                    ### xdot, ydot, zdot
-                    ax.plot(t[:-1], this_ee_dpos_left[:, idx_dim-3], "r", label="left")
-                    ax.plot(t[:-1], this_ee_dpos_right[:, idx_dim-3], "b", label="right")
-                    ax.legend()
-                    # ax.set_ylim([-0.5, 0.5])
-                elif idx_dim == 6:
-                    ### gripper
-                    ax.plot(t, this_left_gripper, "r", label="left")
-                    ax.plot(t, this_right_gripper, "b", label="right")
-                    ax.legend()
-                elif idx_dim == 7:
-                    ### ee vel
-                    ax.plot(t[:-1], this_ee_vel_norm_left, "r", label="left")
-                    ax.plot(t[:-1], this_ee_vel_norm_right, "b", label="right")
-                    ax.plot(t, np.ones_like(t) * 0.01, 'k--')
-                    # set y limit
-                    ax.legend()
-                    ax.set_ylim([0, 0.1])
-                elif idx_dim == 8:
-                    ### ee dist
-                    ax.plot(t, this_ee_dist, "r")
-                    ax.plot(t, np.ones_like(t) * 0.01, 'k--')
-                elif idx_dim == 9:
-                    ### ee dist rate
-                    ax.plot(t[:-1], this_ee_ddist, "b")
-                    ax.set_ylim([-1, 2])
-                ax.set_xlabel("time [s]")
-                ax.set_ylabel(idx_ylabel_map[idx_dim])
-
-            plt.tight_layout()
-            plt.savefig(f'{dataset_dir}/episode_{i}_ee.png', dpi=300)
-            plt.close()
+    with tqdm(total=num_episodes, desc="Process", mininterval=1.0) as pbar:
+        for i in range(num_episodes):
+            _plot_ee_and_gripper(dataset_dir, i)
+            pbar.update()
 
 
 def main():
@@ -601,7 +636,7 @@ def main():
 
 
 if __name__ == "__main__":
-    visualize_ee_and_gripper(
-        dataset_dir="~/bimanual/Diffusion-Policy/data/aloha/datasets/sim_insertion_scripted",
-        num_episodes=1,
+    iter_over_demos(
+        dataset_dir="~/bimanual/Diffusion-Policy/data/aloha/datasets/sim_transfer_cube_scripted",
+        num_episodes=5,
     )
