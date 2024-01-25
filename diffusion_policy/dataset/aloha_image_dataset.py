@@ -374,12 +374,13 @@ def _smooth(data, window_size=5):
 def _find_keypose_idx(
     gripper: np.ndarray,
     ee_vel: np.ndarray,
+    ee_dist: np.ndarray,
     window_size: int=5,
     gripper_epsilon=GRIPPER_EPSILON,
     vel_epsilon=EE_VEL_EPSILONE,
 ) -> List[int]:
     '''
-    Locate keypose indices in a trajectory.
+    Locate keypose indices and coordination indices in a trajectory.
 
     Args:
         gripper_: array of normalized gripper openness wrt time, (T,)
@@ -397,6 +398,7 @@ def _find_keypose_idx(
     gripper_change_rate = np.diff(gripper) / DT
     curr_state = "stable"  # opening, closing, stable
     problem = False
+    coordination = None
     for i in range(T-1):
         if i == 0:
             keypose_indices.append(i)
@@ -426,8 +428,18 @@ def _find_keypose_idx(
                 if ee_vel[i-1] > vel_epsilon and ee_vel[i] < vel_epsilon:
                     keypose_indices.append(i)
 
+            ### judge whether this keyposes is a coordination keypose
+            ### in transfer cube, each arm has only one coordination keypose,
+            ### which is the first keypose when they are close to each other.
+            ### after reaching the coordination keypose, one has to wait for 
+            ### the other
+            if keypose_indices[-1] == i and coordination is None and (
+                ee_dist[i] < EE_DIST_BOUND
+            ):
+                coordination = i
+
     keypose_indices.append(T-1)            
-    return keypose_indices, problem
+    return keypose_indices, coordination, problem
 
 
 def _save_videos(video, dt, video_path=None):
@@ -491,7 +503,7 @@ def _plot_ee_and_gripper(
         h, w = 2, num_dim
         num_figs = num_dim
 
-        ### cpmpute and plot ee
+        ### extract EE information
         this_ee_pos_left = np.zeros((num_t, 3))
         this_ee_pos_right = np.zeros((num_t, 3))
         for j in range(num_t):
@@ -510,16 +522,52 @@ def _plot_ee_and_gripper(
         this_ee_dist = np.linalg.norm(this_ee_pos_left - this_ee_pos_right, axis=-1)
         this_ee_ddist = np.diff(this_ee_dist) / DT
 
+        ### find keypose indices
         window_size = 5
         if i == 45:
             window_size = 31
-        keypose_left, problem_left = _find_keypose_idx(this_gripper_left, this_ee_vel_norm_left, window_size=window_size)
-        keypose_right, problem_right = _find_keypose_idx(this_gripper_right, this_ee_vel_norm_right, window_size=window_size)
+        keypose_left, coordination_left, problem_left = _find_keypose_idx(
+            this_gripper_left,
+            this_ee_vel_norm_left,
+            this_ee_dist,
+            window_size=window_size
+        )
+        keypose_right, coordination_right, problem_right = _find_keypose_idx(
+            this_gripper_right,
+            this_ee_vel_norm_right,
+            this_ee_dist,
+            window_size=window_size
+        )
         if problem_left:
             print(f'left problem in episode {i}')
         if problem_right:
             print(f'right problem in episode {i}')
+        
+        ### save images around keypose, assume there is only one cam
+        cam_name = list(this_image.keys())[0]
+        interval = 25
+        step_around = lambda idx: np.clip(
+            np.arange(idx-2*interval, idx+2*interval+1, interval),
+            0, num_t - 1
+        )
+        from einops import rearrange
+        steps_mat = list()
+        for idx in keypose_left:
+            steps_mat.append(step_around(idx))
+        steps = np.stack(steps_mat, axis=0)  # (num_keypose, num_seq)
+        images = this_image[cam_name][steps]  # (num_keypose, num_seq, h, w, c)
+        images = rearrange(images, 'k t h w c -> (k h) (t w) c')
+        # save
+        plt.imsave(f'{dataset_dir}/episode_{i}_left.png', images)
+        steps_mat = list()
+        for idx in keypose_right:
+            steps_mat.append(step_around(idx))
+        steps = np.stack(steps_mat, axis=0)  # (num_keypose, num_seq)
+        images = this_image[cam_name][steps]  # (num_keypose, num_seq, h, w, c)
+        images = rearrange(images, 'k t h w c -> (k h) (t w) c')
+        plt.imsave(f'{dataset_dir}/episode_{i}_right.png', images)
 
+        ### plot EE curves
         idx_ylabel_map = {
             0: r"$x$ [m]",
             1: r"$y$ [m]",
@@ -560,8 +608,25 @@ def _plot_ee_and_gripper(
                 ax.plot(t, this_gripper_act_right, "b:")
                 ax.plot(t, np.ones_like(t) * GRIPPER_EPSILON, 'k--')
                 ax.plot(t, -np.ones_like(t) * GRIPPER_EPSILON, 'k--')
-                ax.scatter(t[keypose_left], this_gripper_left[keypose_left], marker='x', color='r')
-                ax.scatter(t[keypose_right], this_gripper_right[keypose_right], marker='x', color='b')
+
+                non_coordination_mask_left = np.array(keypose_left) != coordination_left
+                non_coordination_mask_right = np.array(keypose_right) != coordination_right
+                ax.scatter(
+                    t[keypose_left][non_coordination_mask_left],
+                    this_gripper_left[keypose_left][non_coordination_mask_left],
+                    marker='x', color='r'
+                )
+                ax.scatter(
+                    t[keypose_right][non_coordination_mask_right],
+                    this_gripper_right[keypose_right][non_coordination_mask_right],
+                    marker='x', color='b'
+                )
+                ax.scatter(
+                    t[coordination_left], this_gripper_left[coordination_left],marker='o', color='r'
+                )
+                ax.scatter(
+                    t[coordination_right], this_gripper_right[coordination_right], marker='o', color='b'
+                )
                 ax.legend()
             elif idx_dim == 7:
                 ### ee vel
@@ -638,5 +703,5 @@ def main():
 if __name__ == "__main__":
     iter_over_demos(
         dataset_dir="~/bimanual/Diffusion-Policy/data/aloha/datasets/sim_transfer_cube_scripted",
-        num_episodes=5,
+        num_episodes=10,
     )

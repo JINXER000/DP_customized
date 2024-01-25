@@ -203,4 +203,4 @@ RIGHT_BASE_POSE = np.array(
 ### Judgement thresholds
 GRIPPER_EPSILON = 0.2
 EE_VEL_EPSILONE = 0.03
-EE_DIST_BOUND = 0.1
+EE_DIST_BOUND = 0.075
