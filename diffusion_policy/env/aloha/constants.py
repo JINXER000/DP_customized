@@ -2,7 +2,7 @@ import pathlib
 import numpy as np
 
 ### Task parameters
-DATA_DIR = "data/act"
+DATA_DIR = "data/aloha/datasets"
 SIM_TASK_CONFIGS = {
     "sim_transfer_cube_scripted": {
         "dataset_dir": DATA_DIR + "/sim_transfer_cube_scripted_copy",
@@ -28,36 +28,20 @@ SIM_TASK_CONFIGS = {
         "episode_len": 500,
         "camera_names": ["top"],
     },
-    "aloha_screw_driver": {
-        "dataset_dir": DATA_DIR + "/aloha_screw_driver",
-        "num_episodes": 50,
-        "episode_len": 400,
-        "camera_names": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
-    },
-    "aloha_tape": {
-        "dataset_dir": DATA_DIR + "/aloha_tape",
-        "num_episodes": 50,
-        "episode_len": 700,
-        "camera_names": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
-    },
-    "aloha_coffee": {
-        "dataset_dir": DATA_DIR + "/aloha_coffee",
-        "num_episodes": 50,
-        "episode_len": 1100,
-        "camera_names": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
-    },
     "aloha_towel": {
         "dataset_dir": DATA_DIR + "/aloha_towel",
         "num_episodes": 50,
         "episode_len": 500,
         "camera_names": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
     },
-    "aloha_coffee_new": {
-        "dataset_dir": DATA_DIR + "/aloha_coffee_new",
+    ## hang
+    "aloha_insert_10s": {
+        "dataset_dir": DATA_DIR + "/aloha_insert_10s",
         "num_episodes": 50,
-        "episode_len": 1500,
+        "episode_len": 500,
         "camera_names": ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
     },
+
 }
 
 ### Simulation envs fixed constants
