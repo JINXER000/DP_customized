@@ -43,9 +43,7 @@ import modern_robotics as mr
 import cv2
 
 register_codecs()
-
 import ipdb
-
 
 class AlohaImageDataset(BaseImageDataset):
     def __init__(
@@ -166,17 +164,22 @@ class AlohaImageDataset(BaseImageDataset):
                 qpos = root["/observations/qpos"][()]
                 qvel = root["/observations/qvel"][()]
                 action = root["/action"][()]
-                # new axis for different cameras
+
+                # stack different cameras
                 all_cam_images = []
                 for cam_name in camera_names:
                     all_cam_images.append(root[f"/observations/images/{cam_name}"][()])
-                all_cam_images = np.stack(all_cam_images, axis=0)
+
+                # all_cam_images = np.stack(all_cam_images, axis=0) # [n_cam, T, H, W, C]
+                all_cam_images = np.concatenate(all_cam_images, axis=1) # [T, H * n_cam, W, C]
+
+            ## reshape all_cam_images (following real_pushT design)
+            all_cam_images = all_cam_images.swapaxes(3,1).swapaxes(3,2) / 255. # [T, C, H * n_cam, W]
 
             episode = {
-                "qpos": qpos,
-                "action": action,
-                "images": all_cam_images.squeeze(),  # XXX: assume only one camera 
-                                                    ## TODO: how about multiple cameras?
+                "qpos": qpos, # [T, dim]
+                "action": action, # [T, dim]
+                "images": all_cam_images, # [T, C, H*n_cam, W]
             }
             replay_buffer.add_episode(episode)
 
@@ -326,22 +329,46 @@ def _convert_to_replay(
         # one chunk per thread, therefore no synchronization needed
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
             futures = set()
+
             for key in rgb_keys:
-                data_key = f"observations/{key}/{camera_names[0]}"  # XXX: assume only one camera
+
+                ## get all camera_keys
+                all_cam_data_keys = []
+                for cam_name in camera_names:
+                    data_key = f"observations/{key}/{cam_name}"
+                    all_cam_data_keys.append(data_key)
+
                 shape = tuple(shape_meta["obs"][key]["shape"])
                 c, h, w = shape
+                h = h * len(camera_names) ## for multiple camera
                 this_compressor = Jpeg2k(level=50)
+                # img_arr = data_group.require_dataset(
+                #     name=key,
+                #     shape=(n_steps, h, w, c),
+                #     chunks=(1, h, w, c),
+                #     compressor=this_compressor,
+                #     dtype=np.uint8,
+                # )
                 img_arr = data_group.require_dataset(
                     name=key,
-                    shape=(n_steps, h, w, c),
-                    chunks=(1, h, w, c),
+                    shape=(n_steps, c, h, w),
+                    chunks=(1, c, h, w),
                     compressor=this_compressor,
                     dtype=np.uint8,
                 )
+
                 for i in range(num_episodes):
                     dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
                     with h5py.File(dataset_path, "r") as demo:
-                        hdf5_arr = demo[data_key][:]
+
+                        ## get all camera images
+                        hdf5_img_all = []
+                        for data_key in all_cam_data_keys:
+                            hdf5_img = demo[data_key][:]
+                            hdf5_img_all.append(hdf5_img)
+                        hdf5_arr = np.concatenate(hdf5_img_all, axis=1) # [T, H * n_cam, C, W]
+                        hdf5_arr = hdf5_arr.swapaxes(3, 1).swapaxes(3, 2) / 255.  # [T, C, H * n_cam, W]
+
                         for hdf5_idx in range(hdf5_arr.shape[0]):
                             if len(futures) >= max_inflight_tasks:
                                 # limit number of inflight tasks
@@ -354,12 +381,13 @@ def _convert_to_replay(
                                         raise RuntimeError("Failed to encode image!")
                                 pbar.update(len(completed))
 
-                            zarr_idx = episode_starts[i] + hdf5_idx
+                            zarr_idx = episode_starts[i] + hdf5_idx  ## index referring to all episodes
                             futures.add(
                                 executor.submit(
                                     img_copy, img_arr, zarr_idx, hdf5_arr, hdf5_idx
                                 )
                             )
+
             completed, futures = concurrent.futures.wait(futures)
             for f in completed:
                 if not f.result():
