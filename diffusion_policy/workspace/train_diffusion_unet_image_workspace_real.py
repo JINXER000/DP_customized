@@ -77,8 +77,6 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
         train_dataloader = DataLoader(dataset, **cfg.dataloader)
         normalizer = dataset.get_normalizer()
 
-        ipdb.set_trace()
-
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
@@ -150,6 +148,7 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
             cfg.training.checkpoint_every = 1
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
+
 
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
@@ -284,6 +283,8 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                         self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
                 policy.train()
+
+                ipdb.set_trace()
 
                 # end of epoch
                 # log of last step is combined with validation and rollout
