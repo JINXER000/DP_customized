@@ -143,7 +143,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                     batch_size = img.shape[0]
                 else:
                     assert batch_size == img.shape[0]
-                assert img.shape[1:] == self.key_shape_map[key]
+                assert tuple(img.shape[1:]) == self.key_shape_map[key]
                 img = self.key_transform_map[key](img)
                 imgs.append(img)
             # (N*B,C,H,W)
@@ -165,7 +165,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                     batch_size = img.shape[0]
                 else:
                     assert batch_size == img.shape[0]
-                assert img.shape[1:] == self.key_shape_map[key]
+                assert tuple(img.shape[1:]) == self.key_shape_map[key]
                 img = self.key_transform_map[key](img)
                 feature = self.key_model_map[key](img)
                 features.append(feature)
@@ -177,7 +177,7 @@ class MultiImageObsEncoder(ModuleAttrMixin):
                 batch_size = data.shape[0]
             else:
                 assert batch_size == data.shape[0]
-            assert data.shape[1:] == self.key_shape_map[key]
+            assert tuple(data.shape[1:]) == self.key_shape_map[key]
             features.append(data)
         
         # concatenate all features
