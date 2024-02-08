@@ -131,7 +131,7 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: test_mean_score
+    monitor_key: train_action_mse_error # test_mean_score
     mode: max
     k: 5
     format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
