@@ -284,8 +284,6 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                 # ========= eval end for this epoch ==========
                 policy.train()
 
-                ipdb.set_trace()
-
                 # end of epoch
                 # log of last step is combined with validation and rollout
                 wandb_run.log(step_log, step=self.global_step)
