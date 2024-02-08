@@ -159,6 +159,7 @@ class AlohaImageDataset(BaseImageDataset):
     ):
         replay_buffer = ReplayBuffer.create_empty_numpy()
         for i in tqdm(range(num_episodes)):  # num_episodes
+
             dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
             with h5py.File(dataset_path, "r") as root:
                 qpos = root["/observations/qpos"][()]
@@ -341,24 +342,19 @@ def _convert_to_replay(
                 shape = tuple(shape_meta["obs"][key]["shape"])
                 c, h, w = shape
                 h = h * len(camera_names) ## for multiple camera
+
                 this_compressor = Jpeg2k(level=50)
-                # img_arr = data_group.require_dataset(
-                #     name=key,
-                #     shape=(n_steps, h, w, c),
-                #     chunks=(1, h, w, c),
-                #     compressor=this_compressor,
-                #     dtype=np.uint8,
-                # )
                 img_arr = data_group.require_dataset(
                     name=key,
-                    shape=(n_steps, c, h, w),
-                    chunks=(1, c, h, w),
+                    shape=(n_steps, h, w, c),
+                    chunks=(1, h, w, c),
                     compressor=this_compressor,
                     dtype=np.uint8,
                 )
 
                 for i in range(num_episodes):
                     dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
+
                     with h5py.File(dataset_path, "r") as demo:
 
                         ## get all camera images
@@ -367,7 +363,6 @@ def _convert_to_replay(
                             hdf5_img = demo[data_key][:]
                             hdf5_img_all.append(hdf5_img)
                         hdf5_arr = np.concatenate(hdf5_img_all, axis=1) # [T, H * n_cam, C, W]
-                        hdf5_arr = hdf5_arr.swapaxes(3, 1).swapaxes(3, 2) / 255.  # [T, C, H * n_cam, W]
 
                         for hdf5_idx in range(hdf5_arr.shape[0]):
                             if len(futures) >= max_inflight_tasks:
@@ -396,6 +391,7 @@ def _convert_to_replay(
 
     replay_buffer = ReplayBuffer(root)
     return replay_buffer
+
 
 
 def _smooth(data, window_size=5):
