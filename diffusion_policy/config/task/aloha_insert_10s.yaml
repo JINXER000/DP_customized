@@ -1,6 +1,7 @@
 name: aloha_insert_10s.yaml
 
-image_shape: &image_shape [3, 480, 640]
+camera_names: &camera_names ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+image_shape: &image_shape [3, 1920, 640] # 1920 = 480* len(camera_names)
 shape_meta: &shape_meta
   # acceptable types: rgb, low_dim
   obs:
@@ -38,8 +39,8 @@ dataset:
   pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
   pad_after: ${eval:'${n_action_steps}-1'}
   n_obs_steps: ${dataset_obs_steps}
-  use_cache: False
+  use_cache: True
   seed: 42
   val_ratio: 0.2
   max_train_episodes: null
-  camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+  camera_names: *camera_names
