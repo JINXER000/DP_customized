@@ -242,7 +242,8 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                             step_log['val_loss'] = val_loss
 
                 # run diffusion sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
+                # if (self.epoch % cfg.training.sample_every) == 0:
+                if (self.epoch % cfg.training.rollout_every) == 0:
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -253,6 +254,30 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                         pred_action = result['action_pred']
                         mse = torch.nn.functional.mse_loss(pred_action, gt_action)
                         step_log['train_action_mse_error'] = mse.item()
+                        del batch
+                        del obs_dict
+                        del gt_action
+                        del result
+                        del pred_action
+                        del mse
+
+                # run diffusion sampling on a validation batch
+                if (self.epoch % cfg.training.sample_every) == 0:
+                    with torch.no_grad():
+                        # sample trajectory from training set, and evaluate difference
+                        with tqdm.tqdm(val_dataloader, desc=f"Sampling epoch {self.epoch}", 
+                                leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                            for batch_idx, batch in enumerate(tepoch):
+                                batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
+                                obs_dict = batch['obs']
+                                gt_action = batch['action']
+                                
+                                result = policy.predict_action(obs_dict)
+                                pred_action = result['action_pred']
+                                mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                                step_log['val_action_mse_error'] = mse.item()
+                                break
                         del batch
                         del obs_dict
                         del gt_action

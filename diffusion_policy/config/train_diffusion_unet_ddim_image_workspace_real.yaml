@@ -112,8 +112,8 @@ training:
   # in epochs
   rollout_every: 50
   checkpoint_every: 50
-  val_every: 25
-  sample_every: 25
+  val_every: 50
+  sample_every: 1
   # steps per epoch
   max_train_steps: null
   max_val_steps: null
@@ -121,7 +121,7 @@ training:
   tqdm_interval_sec: 1.0
 
 logging:
-  project: diffusion_policy_on_aloha_sim
+  project: diffusion_policy_on_aloha_real
   resume: True
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
@@ -131,10 +131,10 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: train_action_mse_error # test_mean_score
+    monitor_key: val_action_mse_error #train_action_mse_error # test_mean_score
     mode: max
     k: 5
-    format_str: 'epoch={epoch:04d}-train_action_mse_error={train_action_mse_error:.3f}.ckpt'
+    format_str: 'epoch={epoch:04d}-val_action_mse_error={val_action_mse_error:.3f}.ckpt' # follow monitor_key
   save_last_ckpt: True
   save_last_snapshot: False
 
