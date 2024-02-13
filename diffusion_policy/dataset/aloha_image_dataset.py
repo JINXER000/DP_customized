@@ -341,7 +341,6 @@ def _convert_to_replay(
 
                 shape = tuple(shape_meta["obs"][key]["shape"])
                 c, h, w = shape
-                h = h * len(camera_names) ## for multiple camera
 
                 this_compressor = Jpeg2k(level=50)
                 img_arr = data_group.require_dataset(
