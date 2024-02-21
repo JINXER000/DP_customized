@@ -10,6 +10,7 @@ import hydra
 import pathlib
 import skvideo.io
 from omegaconf import OmegaConf
+from einops import rearrange
 import scipy.spatial.transform as st
 # from diffusion_policy.real_world.real_env import RealEnv
 # from diffusion_policy.real_world.spacemouse_shared_memory import Spacemouse
@@ -23,8 +24,6 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.cv2_util import get_image_transform
 
 import ipdb
-ipdb.set_trace()
-
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -33,15 +32,16 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.option('--input', '-i', required=True, help='Path to checkpoint')
 @click.option('--output', '-o', required=True, help='Directory to save recording')
 @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--max_timesteps', '-si', default=6, type=int, help="Action horizon for inference.")
-@click.option('--max_duration', '-md', default=60, help='Max duration for each epoch in seconds.')
-@click.option('--frequency', '-f', default=10, type=float, help="Control frequency in Hz.")
+@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
+@click.option('--max_timesteps', '-md', default=500, help='Max duration for each epoch in seconds.')
+@click.option('--frequency', '-f', default=50, type=float, help="Control frequency in Hz.")
 @click.option('--num_inference_steps', '-n', default=16, type=int, help="DDIM inference iterations.")
 def main(input, output,
     vis_camera_idx, 
-    max_timesteps, 
-    max_duration,
-    frequency):
+    steps_per_inference, 
+    max_timesteps,
+    frequency,
+    num_inference_steps):
 
     ### load checkpoint
     ckpt_path = input
@@ -66,13 +66,19 @@ def main(input, output,
         policy.eval().to(device)
 
         # set inference params
-        policy.num_inference_steps = num_inference_steps # [DDIM inference iterations]
+        policy.num_inference_steps = num_inference_steps #16 # [DDIM inference iterations]
         policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
     else:
         raise RuntimeError("Unsupported policy type: ", cfg.name)
     
+    ### hyper-parameters
+    state_dim = cfg.task.shape_meta.obs.qpos.shape[0] ## qpos shape
+    camera_names = cfg.task.camera_names
+    shape_meta = cfg.task.shape_meta
+    c, h, w = shape_meta.obs.images.shape ## [c, h, w]
+
     ### setup experiment
-    dt = 1/frequency
+    dt = 1/frequency ## Warning: ALOHA constants.py 中的 DT = 0.02, so set frequency = 50
 
     obs_res = get_real_obs_resolution(cfg.task.shape_meta)
     n_obs_steps = cfg.n_obs_steps
@@ -80,10 +86,7 @@ def main(input, output,
     print("max_timesteps:", max_timesteps)
     print("action_offset:", action_offset) ## what is action offset?
 
-    ipdb.set_trace()
-
     ## load aloha env
-
     from aloha.aloha_scripts.robot_utils import move_grippers
     from aloha.aloha_scripts.real_env import make_real_env
 
@@ -100,62 +103,85 @@ def main(input, output,
     for rollout_idx in range(num_rollouts):
         rollout_idx += 1
         print(f"Rollout {rollout_idx}")
-        
-        ts = env.reset() # reset env
 
-        qpos_history = torch.zero((1, max_timesteps, state_dim)).cuda()
-        image_list = []
-        qpos_list = []
-        target_qpos_list = []
-        rewards = []
+        ## reset env
+        ts = env.reset() 
+        t_idx = n_obs_steps
+
+        qpos_history = np.zeros((1, max_timesteps+n_obs_steps, state_dim)) ## [1, max_timesteps, state_dim]
+        images_history = np.zeros((1, max_timesteps+n_obs_steps, c, h, w)) ## [1, max_timesteps, c, h, w]
+
+        qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
 
         with torch.inference_mode():
-
-            for t in range(max_timesteps):
             ## loop max_timesteps
+            while True:
                 
-                ## process previous timesteps to get qpos and image_list
-                obs = ts.observation
-                if 'images' in obs:
-                    image_list.append(obs['images'])
-                else:
-                    image_list.append({'main': obs['image']})
-                qpos_numpy = np.array(obs['qpos'])
-                qpos = pre_process(qpos_numpy)
-                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
-                qpos_history[:, t] = qpos
-                curr_image = get_image(ts, camera_names)
+                ''' construct observations = {"images", "qpos"} '''
+                obs_dict_np = dict()
+                obs_dict_np["images"] = images_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, c, h, w]
+                obs_dict_np["qpos"] = qpos_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, state_dim]
 
-                ipdb.set_trace()
-
-                ## To-Do: 需要仔细debug一下，输入形式？输出形式？
+                ''' get action sequenct '''
                 with torch.no_grad():
-                    s = time.time()
-                    # obs_dict_np = get_real_obs_dict(
-                    #     env_obs=obs, shape_meta=cfg.task.shape_meta)
-                    # obs_dict = dict_apply(obs_dict_np, 
-                    #     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
-                    result = policy.predict_action(qpos, curr_image)
-                    # this action starts from the first obs step
-                    action = result['action'][0].detach().to('cpu').numpy()
-                    print('Inference latency:', time.time() - s)
+                    obs_dict = dict_apply(obs_dict_np, 
+                        lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+                    result = policy.predict_action(obs_dict)
 
-                ## env.step
-                target_qpos = action ## Note: 由于 aloha_dataset 并没有对数据进行 normalize，所以此处可不用进行 pre-processing
-                ts = env.step(target_qpos)
+                action_seq = result['action'][0].detach().to('cpu').numpy()
+                
+                ''' implement action sequence '''
+                for action in action_seq:
+                    ts = env.step(action)
+                    t_idx += 1
 
-                # ### for visualization
-                qpos_list.append(qpos_numpy)
-                target_qpos_list.append(target_qpos)
-                # rewards.append(ts.reward)
+                    if t_idx == max_timesteps+n_obs_steps:
+                        break
+
+                    qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
+
+        # ## move grippers
+        # move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
+        # pass
+
+    #     ## statistics
+    #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
+                        
+
+def collect_obs(ts, idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta):
+    obs = ts.observation
+    ## get qpos input
+    qpos_numpy = np.array(obs['qpos'])
+    qpos = np.expand_dims(qpos_numpy, axis=0) ## [1, state_dim]
+    if idx == n_obs_steps:
+        qpos_history[:, idx-n_obs_steps:idx] = qpos
+    else:
+        qpos_history[:, idx-1] = qpos
+
+    ## get image input
+    curr_image = get_image(ts, camera_names, shape_meta)
+    if idx == n_obs_steps:
+        images_history[:, idx-n_obs_steps:idx] = curr_image
+    else:
+        images_history[:, idx-1] = curr_image
+
+    return qpos_history, images_history
 
 
-        ## move grippers
-        move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
-        pass
 
-        ## statistics
-        save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
+def get_image(ts, camera_names, shape_meta):
+
+    curr_images = []
+    for cam_name in camera_names:
+        curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w')
+        curr_images.append(curr_image)
+
+    ## align with aloha_datasets
+    curr_image = np.concatenate(curr_images, axis=1) 
+    assert curr_image.shape == tuple(shape_meta.obs.images.shape)
+    curr_image = np.expand_dims(curr_image, axis=0)
+     ## [T=1, c, h, w]
+    return curr_image
 
 
 
@@ -192,6 +218,7 @@ def save_videos(video, dt, video_path=None):
             out.write(image)
         out.release()
         print(f'Saved video to: {video_path}')
+
 
 
 if __name__ == '__main__':
