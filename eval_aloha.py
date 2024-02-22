@@ -67,7 +67,7 @@ def main(input, output,
 
         # set inference params
         policy.num_inference_steps = num_inference_steps #16 # [DDIM inference iterations]
-        policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
+        #policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
     else:
         raise RuntimeError("Unsupported policy type: ", cfg.name)
     
@@ -96,13 +96,14 @@ def main(input, output,
     ## rollout
     max_timesteps = int(max_timesteps * 1) ## may increase for real-world tasks
 
-    num_rollouts = 5
+    num_rollouts = 1
     episode_returns = []
     highest_rewards = []
 
     for rollout_idx in range(num_rollouts):
         rollout_idx += 1
-        print(f"Rollout {rollout_idx}")
+        
+        print(f"Rollout {rollout_idx} - Collecting observations...")
 
         ## reset env
         ts = env.reset() 
@@ -116,33 +117,39 @@ def main(input, output,
         with torch.inference_mode():
             ## loop max_timesteps
             while True:
-                
-                ''' construct observations = {"images", "qpos"} '''
+                ''' construct observations_seq = {"images", "qpos"} '''
                 obs_dict_np = dict()
                 obs_dict_np["images"] = images_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, c, h, w]
-                obs_dict_np["qpos"] = qpos_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, state_dim]
+                obs_dict_np["qpos"] = qpos_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, state_dim]")
 
-                ''' get action sequenct '''
-                with torch.no_grad():
-                    obs_dict = dict_apply(obs_dict_np, 
-                        lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
-                    result = policy.predict_action(obs_dict)
+                print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
+                # ipdb.set_trace()
+
+                ''' get action sequence '''
+                s = time.time()
+                obs_dict = dict_apply(obs_dict_np, 
+                    lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
+                result = policy.predict_action(obs_dict)
+                print(f"Execution Policy: {time.time() - s:.3f} seconds")
 
                 action_seq = result['action'][0].detach().to('cpu').numpy()
                 
                 ''' implement action sequence '''
                 for action in action_seq:
                     ts = env.step(action)
-                    t_idx += 1
-
-                    if t_idx == max_timesteps+n_obs_steps:
-                        break
 
                     qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
 
+                    t_idx += 1
+                    if t_idx == max_timesteps+n_obs_steps:
+                        break
+                
+                if t_idx >= max_timesteps+n_obs_steps:
+                    break
+
         # ## move grippers
         # move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
-        # pass
+        # # pass
 
     #     ## statistics
     #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
@@ -156,14 +163,14 @@ def collect_obs(ts, idx, n_obs_steps, qpos_history, images_history, camera_names
     if idx == n_obs_steps:
         qpos_history[:, idx-n_obs_steps:idx] = qpos
     else:
-        qpos_history[:, idx-1] = qpos
+        qpos_history[:, idx] = qpos
 
     ## get image input
     curr_image = get_image(ts, camera_names, shape_meta)
     if idx == n_obs_steps:
         images_history[:, idx-n_obs_steps:idx] = curr_image
     else:
-        images_history[:, idx-1] = curr_image
+        images_history[:, idx] = curr_image
 
     return qpos_history, images_history
 
@@ -173,7 +180,7 @@ def get_image(ts, camera_names, shape_meta):
 
     curr_images = []
     for cam_name in camera_names:
-        curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w')
+        curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w') / 255.0
         curr_images.append(curr_image)
 
     ## align with aloha_datasets
