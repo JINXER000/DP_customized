@@ -22,7 +22,6 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.cv2_util import get_image_transform
-# from aloha_constants import PUPPET_GRIPPER_JOINT_OPEN
 
 import ipdb
 
@@ -148,9 +147,10 @@ def main(input, output,
                 if t_idx >= max_timesteps+n_obs_steps:
                     break
 
-        ## move grippers
-        # move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
-        # pass
+    ### move grippers
+    PUPPET_GRIPPER_JOINT_OPEN = 1.4910
+    move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
+    pass
 
     #     ## statistics
     #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
