@@ -1,11 +1,22 @@
-name: aloha_insert_10s.yaml
+name: &name aloha_insert_10s.yaml
+dataset_dir: &dataset_dir data/aloha/datasets/aloha_insert_10s
 
-camera_names: &camera_names ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
-image_shape: &image_shape [3, 1920, 640] # 1920 = 480* len(camera_names)
+## version.1 - multi-view observation are independently encoded
+dataset_target: &dataset_target diffusion_policy.dataset.aloha_image_dataset_multi.AlohaImageDataset
+image_shape: &image_shape [3, 480, 640] 
 shape_meta: &shape_meta
   # acceptable types: rgb, low_dim
   obs:
-    images:
+    cam_high:
+      shape: *image_shape
+      type: rgb
+    cam_low:
+      shape: *image_shape
+      type: rgb
+    cam_left_wrist:
+      shape: *image_shape
+      type: rgb
+    cam_right_wrist:
       shape: *image_shape
       type: rgb
     qpos:
@@ -13,6 +24,22 @@ shape_meta: &shape_meta
       type: low_dim
   action:
     shape: [14]
+
+# ## version.2 - multi-view observation are concatenate along H, before encoded
+# dataset_target: &dataset_target diffusion_policy.dataset.aloha_image_dataset_concat.AlohaImageDataset
+# image_shape: &image_shape [3, 1920, 640] # 1920 = 480* len(camera_names)
+# shape_meta: &shape_meta
+#   # acceptable types: rgb, low_dim
+#   obs:
+#     images:
+#       shape: *image_shape
+#       type: rgb
+#     qpos:
+#       shape: [14]
+#       type: low_dim
+#   action:
+#     shape: [14]
+
 
 env_runner:
   _target_: diffusion_policy.env_runner.aloha_image_runner.AlohaImageRunner
@@ -22,7 +49,7 @@ env_runner:
   train_start_seed: 0
   n_test: 10
   n_test_vis: 4
-  task_name: sim_transfer_cube_human
+  task_name: *name
   test_start_seed: 100000
   max_steps: 400
   n_obs_steps: ${n_obs_steps}
@@ -32,9 +59,9 @@ env_runner:
   n_envs: null
 
 dataset:
-  _target_: diffusion_policy.dataset.aloha_image_dataset.AlohaImageDataset
+  _target_: *dataset_target
   shape_meta: *shape_meta
-  dataset_dir: data/aloha/datasets/aloha_insert_10s
+  dataset_dir: *dataset_dir
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
   pad_after: ${eval:'${n_action_steps}-1'}
@@ -43,5 +70,4 @@ dataset:
   seed: 42
   val_ratio: 0.2
   max_train_episodes: null
-  camera_names: *camera_names
-  task: aloha_insert_10s
+  camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]

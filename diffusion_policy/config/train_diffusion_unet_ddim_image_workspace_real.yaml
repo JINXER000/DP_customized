@@ -41,9 +41,10 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_resnet
       name: resnet18
       weights: null
-    resize_shape: [240, 320]
-    crop_shape: [220, 300]
-    # constant center crop
+    resize_shape: [120, 160] ## for aloha_image_dataset_multi, [480, 640] / 4
+    crop_shape: [110, 150] ## for aloha_image_dataset_multi
+    # resize_shape: [240, 80] ## for aloha_image_dataset_concat, [1920, 640] / 8
+    # crop_shape: null ## for aloha_image_dataset_concat
     random_crop: True
     use_group_norm: True
     share_rgb_model: False
@@ -74,7 +75,7 @@ ema:
 
 dataloader:
   batch_size: 64
-  num_workers: 16
+  num_workers: 4
   shuffle: True
   pin_memory: True
   persistent_workers: True
@@ -82,8 +83,8 @@ dataloader:
 
 val_dataloader:
   batch_size: 64
-  num_workers: 16
-  shuffle: False
+  num_workers: 4
+  shuffle: True
   pin_memory: True
   persistent_workers: False
 
@@ -97,7 +98,7 @@ optimizer:
 training:
   device: "cuda:0"
   seed: 42
-  debug: False
+  debug: True
   resume: True
   # optimization
   lr_scheduler: cosine

@@ -75,8 +75,10 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_resnet
       name: resnet18
       weights: null
-    resize_shape: [480, 160] ## [1920, 640] / 4
-    crop_shape: null ## [220, 300]
+    resize_shape: [120, 160] ## for aloha_image_dataset_multi, [480, 640] / 4
+    crop_shape: [110, 150] ## for aloha_image_dataset_multi
+    # resize_shape: [240, 80] ## for aloha_image_dataset_concat, [1920, 640] / 8
+    # crop_shape: null ## for aloha_image_dataset_concat
     # constant center crop
     random_crop: True
     use_group_norm: True

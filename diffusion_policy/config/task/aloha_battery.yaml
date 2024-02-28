@@ -1,5 +1,5 @@
-name: &name aloha_insert_10s_random_init.yaml
-dataset_dir: &dataset_dir data/aloha/datasets/aloha_insert_10s_random_init
+name: &name aloha_battery.yaml
+dataset_dir: &dataset_dir data/aloha/datasets/aloha_battery
 
 ## version.1 - multi-view observation are independently encoded
 dataset_target: &dataset_target diffusion_policy.dataset.aloha_image_dataset_multi.AlohaImageDataset
