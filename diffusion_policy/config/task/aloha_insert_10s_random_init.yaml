@@ -1,4 +1,4 @@
-name: aloha_insert_10s.yaml
+name: aloha_insert_10s_random_init.yaml
 
 camera_names: &camera_names ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
 image_shape: &image_shape [3, 1920, 640] # 1920 = 480* len(camera_names)
@@ -34,7 +34,7 @@ env_runner:
 dataset:
   _target_: diffusion_policy.dataset.aloha_image_dataset.AlohaImageDataset
   shape_meta: *shape_meta
-  dataset_dir: data/aloha/datasets/aloha_insert_10s
+  dataset_dir: data/aloha/datasets/aloha_insert_10s_random_init
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1+${n_latency_steps}'}
   pad_after: ${eval:'${n_action_steps}-1'}
@@ -44,4 +44,4 @@ dataset:
   val_ratio: 0.2
   max_train_episodes: null
   camera_names: *camera_names
-  task: aloha_insert_10s
+  task: aloha_insert_10s_random_init
