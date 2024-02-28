@@ -329,7 +329,4 @@ class ConsistencyUnetLowdimPolicy(BaseLowdimPolicy):
                 self.target_model_param_groups_and_shapes,
                 self.target_model_master_params,
             )
-        # print(self.target_model_master_params)
-
-
-
+        # print(self.target_model_master_params        
