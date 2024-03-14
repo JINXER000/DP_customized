@@ -1,4 +1,4 @@
-name: &name aloha_insert_10s_random_init.yaml
+name: &name aloha_insert_10s_random_init
 dataset_dir: &dataset_dir data/aloha/datasets/aloha_insert_10s_random_init
 
 ## version.1 - multi-view observation are independently encoded
@@ -71,3 +71,4 @@ dataset:
   val_ratio: 0.2
   max_train_episodes: null
   camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+  task: *name

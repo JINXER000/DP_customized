@@ -395,11 +395,23 @@ def _smooth(data, window_size=5):
 
 def main():
 
-    task = "sim_transfer_cube_human"
-    dataset_dir = "/home/xuhang/Diffusion-Policy/data/aloha/datasets/" + task
+    task = "aloha_insert_10s_random_init"
+    dataset_dir = "~/bimanual/Diffusion-Policy/data/aloha/datasets/" + task
     shape_meta = {
         "obs": {
-            "images": {
+            "cam_high": {
+                "shape": (3, 480, 640),
+                "type": "rgb",
+            },
+            "cam_low": {
+                "shape": (3, 480, 640),
+                "type": "rgb",
+            },
+            "cam_left_wrist": {
+                "shape": (3, 480, 640),
+                "type": "rgb",
+            },
+            "cam_right_wrist": {
                 "shape": (3, 480, 640),
                 "type": "rgb",
             },
@@ -417,12 +429,12 @@ def main():
     dataset = AlohaImageDataset(
         str(pathlib.Path(dataset_dir).expanduser()),
         shape_meta,
-        horizon=5,
-        use_cache=False,
+        horizon=16,
+        use_cache=True,
         task=task
     )
 
-    print(dataset.replay_buffer["images"].shape)
+    print(dataset.replay_buffer["cam_high"].shape)
 
 if __name__ == "__main__":
     main()
