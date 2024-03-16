@@ -1,9 +1,9 @@
 defaults:
   - _self_
-  - task: lift_image_abs
+  - task: aloha_insert_10s_random_init
 
 name: train_diffusion_unet_image
-_target_: diffusion_policy.workspace.train_diffusion_unet_image_workspace_real.TrainDiffusionUnetImageWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_image_workspace_real_ddp.TrainDiffusionUnetImageWorkspaceDDP
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -76,17 +76,17 @@ ema:
 dataloader:
   batch_size: 64
   num_workers: 16
-  shuffle: True
   pin_memory: True
+  drop_last: False
   persistent_workers: True
-  prefetch_factor: 8
+  prefetch_factor: 12
 
 val_dataloader:
   batch_size: 64
   num_workers: 16
-  shuffle: False
   pin_memory: True
-  persistent_workers: False
+  persistent_workers: True
+  prefetch_factor: 12
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -96,7 +96,7 @@ optimizer:
   weight_decay: 1.0e-6
 
 training:
-  device: "cuda:0"
+  device: "cuda"
   seed: 42
   debug: True
   resume: True
@@ -104,7 +104,6 @@ training:
   lr_scheduler: cosine
   lr_warmup_steps: 500
   num_epochs: 505
-  gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
   use_ema: True
@@ -138,10 +137,6 @@ checkpoint:
     format_str: 'epoch={epoch:04d}-train_action_mse_error={train_action_mse_error:.4f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False
-
-multi_run:
-  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
-  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
 
 hydra:
   job:

@@ -80,3 +80,12 @@ def optimizer_to(optimizer, device):
             if isinstance(v, torch.Tensor):
                 state[k] = v.to(device=device)
     return optimizer
+
+def find_batch_size(batch):
+    if isinstance(batch, dict):
+        for value in batch.values():
+            size = find_batch_size(value)  # Recursively find the batch size
+            if size is not None:  # If a batch size is found, return it
+                return size
+    elif isinstance(batch, torch.Tensor):
+        return batch.size(0)
