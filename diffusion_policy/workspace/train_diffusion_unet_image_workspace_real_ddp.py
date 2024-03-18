@@ -52,7 +52,6 @@ class TrainDiffusionUnetImageWorkspaceDDP(BaseWorkspace):
 
         torch.backends.cudnn.benckmark = True
         torch.backends.cudnn.deterministic = False
-        torch.backends.cuda.matmul.allow_tf32 = True
 
         # configure training state
         self.global_step = 0
@@ -67,19 +66,30 @@ class TrainDiffusionUnetImageWorkspaceDDP(BaseWorkspace):
         print(ddp_info)
 
         # configure dataset
+        ## seed config
+        def seed_worker(worker_id):
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+            np.random.seed(np.random.get_state()[1][0] + worker_id)
+        g = torch.Generator()
+        g.manual_seed(cfg.training.seed)
+
         dataset: BaseImageDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseImageDataset)
         train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
         train_dataloader = DataLoader(
-            dataset, sampler=train_sampler, **cfg.dataloader)
+            dataset, sampler=train_sampler, generator=g,
+            worker_init_fn=seed_worker, **cfg.dataloader)
         normalizer = dataset.get_normalizer()
 
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False)
         val_dataloader = DataLoader(
-            val_dataset, sampler=val_sampler, **cfg.val_dataloader)
+            val_dataset, sampler=val_sampler, generator=g,
+            worker_init_fn=seed_worker, **cfg.val_dataloader)
 
         # configure model and optimizer under DDP
         model: DiffusionUnetImagePolicy = hydra.utils.instantiate(cfg.policy)
@@ -155,10 +165,9 @@ class TrainDiffusionUnetImageWorkspaceDDP(BaseWorkspace):
         train_sampling_batch = None
 
         if cfg.training.debug:
-            cfg.training.num_epochs = 3
-            cfg.training.max_train_steps = 5
-            cfg.training.max_val_steps = 5
-            cfg.training.rollout_every = 1
+            cfg.training.num_epochs = 2
+            cfg.training.max_train_steps = 10
+            cfg.training.max_val_steps = 10
             cfg.training.checkpoint_every = 1
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
@@ -181,10 +190,9 @@ class TrainDiffusionUnetImageWorkspaceDDP(BaseWorkspace):
                         train_dataloader, desc=f"Training epoch {self.epoch}", 
                         leave=False, mininterval=cfg.training.tqdm_interval_sec
                     )
+                # set epoch for sampler
+                train_sampler.set_epoch(local_epoch_idx)
                 with tepoch:
-                    # set epoch for sampler
-                    train_sampler.set_epoch(local_epoch_idx)
-
                     for batch_idx, batch in enumerate(tepoch):
                         # device transfer
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
