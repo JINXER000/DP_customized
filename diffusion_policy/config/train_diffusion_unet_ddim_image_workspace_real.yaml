@@ -41,7 +41,7 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_resnet
       name: resnet18
       weights: null
-    resize_shape: [120, 160] ## for aloha_image_dataset_multi, [480, 640] / 4
+    resize_shape: null ## for aloha_image_dataset_multi, [480, 640] / 4
     crop_shape: [110, 150] ## for aloha_image_dataset_multi
     # resize_shape: [240, 80] ## for aloha_image_dataset_concat, [1920, 640] / 8
     # crop_shape: null ## for aloha_image_dataset_concat
@@ -75,18 +75,17 @@ ema:
 
 dataloader:
   batch_size: 64
-  num_workers: 16
+  num_workers: 8
   shuffle: True
   pin_memory: True
   persistent_workers: True
-  prefetch_factor: 8
 
 val_dataloader:
   batch_size: 64
-  num_workers: 16
+  num_workers: 8
   shuffle: False
   pin_memory: True
-  persistent_workers: False
+  persistent_workers: True
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -98,7 +97,7 @@ optimizer:
 training:
   device: "cuda:0"
   seed: 42
-  debug: True
+  debug: False
   resume: True
   # optimization
   lr_scheduler: cosine
@@ -111,7 +110,6 @@ training:
   freeze_encoder: False
   # training loop control
   # in epochs
-  rollout_every: 50
   checkpoint_every: 50
   val_every: 50
   sample_every: 25

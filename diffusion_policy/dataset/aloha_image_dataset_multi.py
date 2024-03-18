@@ -6,7 +6,7 @@ if __name__ == "__main__":
     ROOT_DIR = str(pathlib.Path(__file__).parent.parent.parent)
     sys.path.append(ROOT_DIR)
 
-
+import time
 import os
 import h5py
 from typing import Dict, List
@@ -400,19 +400,19 @@ def main():
     shape_meta = {
         "obs": {
             "cam_high": {
-                "shape": (3, 480, 640),
+                "shape": (3, 120, 160),
                 "type": "rgb",
             },
             "cam_low": {
-                "shape": (3, 480, 640),
+                "shape": (3, 120, 160),
                 "type": "rgb",
             },
             "cam_left_wrist": {
-                "shape": (3, 480, 640),
+                "shape": (3, 120, 160),
                 "type": "rgb",
             },
             "cam_right_wrist": {
-                "shape": (3, 480, 640),
+                "shape": (3, 120, 160),
                 "type": "rgb",
             },
             "qpos": {
@@ -430,11 +430,42 @@ def main():
         str(pathlib.Path(dataset_dir).expanduser()),
         shape_meta,
         horizon=16,
-        use_cache=True,
-        task=task
+        pad_before=1,
+        pad_after=7,
+        camera_names=["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"],
+        use_cache=False,
+        val_ratio=0.2,
+        task=task,
+        num_episodes=2
     )
 
-    print(dataset.replay_buffer["cam_high"].shape)
+    val_set = dataset.get_validation_dataset()
+    train_loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=64,
+        num_workers=8,
+        shuffle=True,
+        pin_memory=False,
+        persistent_workers=True,
+    )
+
+    np.set_printoptions(precision=3)
+    num_epochs = 1
+    num_steps = 10
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch}:")
+        train_time_per_batch = []
+        start = time.time()
+        for i, batch in enumerate(tqdm(train_loader)):
+            time_get = time.time()
+            train_time_per_batch.append(time_get - start)
+            start = time_get
+            if i + 1 == num_steps:
+                break
+        train = np.array(train_time_per_batch)
+        print(f"Train mean: {train.mean():.3f}, std: {train.std():.3f}, max: {train.max():.3f}")
+        print("train:", train[:10])
+
 
 if __name__ == "__main__":
     main()

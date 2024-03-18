@@ -146,9 +146,8 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
 
         if cfg.training.debug:
             cfg.training.num_epochs = 2
-            cfg.training.max_train_steps = 3
-            cfg.training.max_val_steps = 3
-            cfg.training.rollout_every = 1
+            cfg.training.max_train_steps = 10
+            cfg.training.max_val_steps = 10
             cfg.training.checkpoint_every = 1
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
@@ -194,6 +193,7 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                         train_losses.append(raw_loss_cpu)
                         step_log = {
                             'train_loss': raw_loss_cpu,
+                            'train_log_loss': math.log(raw_loss_cpu),
                             'global_step': self.global_step,
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0]
@@ -220,12 +220,6 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                 if cfg.training.use_ema:
                     policy = self.ema_model
                 policy.eval()
-
-                # # run rollout [remove simulation runner]
-                # if (self.epoch % cfg.training.rollout_every) == 0:
-                #     runner_log = env_runner.run(policy)
-                #     # log all
-                #     step_log.update(runner_log)
 
                 # run validation
                 if (self.epoch % cfg.training.val_every) == 0:
@@ -264,30 +258,6 @@ class TrainDiffusionUnetImageWorkspace(BaseWorkspace):
                         del result
                         del pred_action
                         del mse
-
-                # # run diffusion sampling on a validation batch
-                # if (self.epoch % cfg.training.sample_every) == 0:
-                #     with torch.no_grad():
-                #         # sample trajectory from training set, and evaluate difference
-                #         with tqdm.tqdm(val_dataloader, desc=f"Sampling epoch {self.epoch}", 
-                #                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
-                #             for batch_idx, batch in enumerate(tepoch):
-                #                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-
-                #                 obs_dict = batch['obs']
-                #                 gt_action = batch['action']
-                                
-                #                 result = policy.predict_action(obs_dict)
-                #                 pred_action = result['action_pred']
-                #                 mse = torch.nn.functional.mse_loss(pred_action, gt_action)
-                #                 step_log['val_action_mse_error'] = mse.item()
-                #                 break
-                #         del batch
-                #         del obs_dict
-                #         del gt_action
-                #         del result
-                #         del pred_action
-                #         del mse
                 
                 # checkpoint
                 if (self.epoch % cfg.training.checkpoint_every) == 0:
