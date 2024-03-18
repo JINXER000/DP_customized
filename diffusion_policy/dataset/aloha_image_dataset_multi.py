@@ -167,20 +167,15 @@ class AlohaImageDataset(BaseImageDataset):
                 action = root["/action"][()]
 
                 # stack different cameras
-                all_cam_images = []
+                all_cam_images = dict()
                 for cam_name in camera_names:
-                    all_cam_images.append(root[f"/observations/images/{cam_name}"][()])
-                # all_cam_images = np.stack(all_cam_images, axis=0) # [n_cam, T, H, W, C]
+                    all_cam_images[cam_name] = root[f"/observations/images/{cam_name}"][()]
 
             episode = {
                 "qpos": qpos, # [T, dim]
                 "action": action, # [T, dim]
-                # "images": all_cam_images, # [T, H, W, C]
-                f"{camera_names[0]}": all_cam_images[0], # [T, H, W, C]
-                f"{camera_names[1]}": all_cam_images[1], # [T, H, W, C]
-                f"{camera_names[2]}": all_cam_images[2], # [T, H, W, C]
-                f"{camera_names[3]}": all_cam_images[3], # [T, H, W, C]
             }
+            episode.update(all_cam_images) # each cam [T, H, W, C]
             replay_buffer.add_episode(episode)
 
         return replay_buffer
