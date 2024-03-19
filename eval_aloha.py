@@ -1,8 +1,8 @@
-# %%
 import time
 import numpy as np
 import click
 import cv2
+import copy
 import numpy as np
 import torch
 import dill
@@ -22,6 +22,9 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.cv2_util import get_image_transform
+
+from aloha.aloha_scripts.robot_utils import move_grippers
+from aloha.aloha_scripts.real_env import make_real_env
 
 import ipdb
 
@@ -50,7 +53,16 @@ def main(input, output,
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
-    workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+    ### in case that model, ema_model & opt are not defined in __init__ (e.g. ddp)
+    if "model" not in workspace.__dict__.keys():
+        workspace.model = hydra.utils.instantiate(cfg.policy)
+    if "ema_model" not in workspace.__dict__.keys() and cfg.training.use_ema:
+        workspace.ema_model = copy.deepcopy(workspace.model)
+    if "optimizer" not in workspace.__dict__.keys():
+        workspace.optimizer = hydra.utils.instantiate(
+            cfg.optimizer, workspace.model.parameters()
+        )
+    workspace.load_payload(payload, exclude_keys=["optimizer"], include_keys=None)
 
     ### load policy
     action_offset = 0
@@ -73,24 +85,21 @@ def main(input, output,
     
     ### hyper-parameters
     state_dim = cfg.task.shape_meta.obs.qpos.shape[0] ## qpos shape
-    camera_names = cfg.task.camera_names
+    camera_names = cfg.task.dataset.camera_names
     shape_meta = cfg.task.shape_meta
-    c, h, w = shape_meta.obs.images.shape ## [c, h, w]
+    c, h, w = shape_meta.obs.cam_high.shape ## [c, h, w]
 
     ### setup experiment
     dt = 1/frequency ## Warning: ALOHA constants.py 中的 DT = 0.02, so set frequency = 50
 
-    obs_res = get_real_obs_resolution(cfg.task.shape_meta)
+    obs_res = get_real_obs_resolution(cfg.task.shape_meta)  # why (w,h) here?
     n_obs_steps = cfg.n_obs_steps
     print("n_obs_steps: ", n_obs_steps)
     print("max_timesteps:", max_timesteps)
     print("action_offset:", action_offset) ## what is action offset?
 
     ## load aloha env
-    from aloha.aloha_scripts.robot_utils import move_grippers
-    from aloha.aloha_scripts.real_env import make_real_env
-
-    env = make_real_env(init_node=True)
+    env = make_real_env(init_node=True, downsample_scale=4)
     env_max_reward = 0
 
     ## rollout
@@ -109,8 +118,14 @@ def main(input, output,
         ts = env.reset() 
         t_idx = n_obs_steps
 
-        qpos_history = np.zeros((1, max_timesteps+n_obs_steps, state_dim)) ## [1, max_timesteps, state_dim]
-        images_history = np.zeros((1, max_timesteps+n_obs_steps, c, h, w)) ## [1, max_timesteps, c, h, w]
+        qpos_history = np.zeros(
+            (max_timesteps+n_obs_steps, state_dim), dtype=np.float32
+        ) ## [max_timesteps, state_dim]
+        images_history = dict()
+        for cam_name in camera_names:
+            images_history[cam_name] = np.zeros(
+                (max_timesteps+n_obs_steps, c, h, w), dtype=np.float32
+            ) ## [max_timesteps, c, h, w]
 
         qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
 
@@ -119,8 +134,9 @@ def main(input, output,
             while True:
                 ''' construct observations_seq = {"images", "qpos"} '''
                 obs_dict_np = dict()
-                obs_dict_np["images"] = images_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, c, h, w]
-                obs_dict_np["qpos"] = qpos_history[0][t_idx-n_obs_steps:t_idx] ## [1, n_obs_steps, state_dim]")
+                obs_dict_np["qpos"] = qpos_history[t_idx-n_obs_steps:t_idx] ## [n_obs_steps, state_dim]")
+                for cam_name in camera_names:
+                    obs_dict_np[cam_name] = images_history[cam_name][t_idx-n_obs_steps:t_idx] ## [n_obs_steps, c, h, w]
 
                 print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
                 # ipdb.set_trace()
@@ -159,37 +175,40 @@ def main(input, output,
 def collect_obs(ts, idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta):
     obs = ts.observation
     ## get qpos input
-    qpos_numpy = np.array(obs['qpos'])
-    qpos = np.expand_dims(qpos_numpy, axis=0) ## [1, state_dim]
+    qpos = np.array(obs['qpos']) ## [state_dim,]
     if idx == n_obs_steps:
-        qpos_history[:, idx-n_obs_steps:idx] = qpos
+        qpos_history[idx-n_obs_steps:idx] = qpos # broadcast here
     else:
-        qpos_history[:, idx] = qpos
+        qpos_history[idx] = qpos
 
     ## get image input
-    curr_image = get_image(ts, camera_names, shape_meta)
+    curr_image_dict = get_image(ts, camera_names, shape_meta) # it returns a dict
     if idx == n_obs_steps:
-        images_history[:, idx-n_obs_steps:idx] = curr_image
+        for cam_name in camera_names:
+            images_history[cam_name][idx-n_obs_steps:idx] = curr_image_dict[cam_name]
     else:
-        images_history[:, idx] = curr_image
+        for cam_name in camera_names:
+            images_history[cam_name][idx] = curr_image_dict[cam_name]
 
     return qpos_history, images_history
 
 
 
 def get_image(ts, camera_names, shape_meta):
-
-    curr_images = []
+    """
+    @return
+        curr_images_dict: {
+            cam_name: image (c,h,w)
+        }
+    """
+    curr_images_dict = dict()
     for cam_name in camera_names:
         curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w') / 255.0
-        curr_images.append(curr_image)
+        assert curr_image.shape == tuple((shape_meta.obs[cam_name]).shape), \
+            f"{curr_image.shape} vs. {tuple((shape_meta.obs[cam_name]).shape)}"
+        curr_images_dict[cam_name] = curr_image # [0, 1]^(c,h,w)
 
-    ## align with aloha_datasets
-    curr_image = np.concatenate(curr_images, axis=1) 
-    assert curr_image.shape == tuple(shape_meta.obs.images.shape)
-    curr_image = np.expand_dims(curr_image, axis=0)
-     ## [T=1, c, h, w]
-    return curr_image
+    return curr_images_dict
 
 
 

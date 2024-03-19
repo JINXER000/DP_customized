@@ -3,12 +3,13 @@ import numpy as np
 import collections
 import matplotlib.pyplot as plt
 import dm_env
+import cv2
 
-from constants import DT, START_ARM_POSE, MASTER_GRIPPER_JOINT_NORMALIZE_FN, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN
-from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
-from constants import PUPPET_GRIPPER_JOINT_OPEN, PUPPET_GRIPPER_JOINT_CLOSE
-from robot_utils import Recorder, ImageRecorder
-from robot_utils import setup_master_bot, setup_puppet_bot, move_arms, move_grippers
+from aloha.aloha_scripts.constants import DT, START_ARM_POSE, MASTER_GRIPPER_JOINT_NORMALIZE_FN, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN
+from aloha.aloha_scripts.constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
+from aloha.aloha_scripts.constants import PUPPET_GRIPPER_JOINT_OPEN, PUPPET_GRIPPER_JOINT_CLOSE
+from aloha.aloha_scripts.robot_utils import Recorder, ImageRecorder
+from aloha.aloha_scripts.robot_utils import setup_master_bot, setup_puppet_bot, move_arms, move_grippers
 from interbotix_xs_modules.arm import InterbotixManipulatorXS
 from interbotix_xs_msgs.msg import JointSingleCommand
 
@@ -37,7 +38,7 @@ class RealEnv:
                                    "cam_right_wrist": (480x640x3)} # h, w, c, dtype='uint8'
     """
 
-    def __init__(self, init_node, setup_robots=True):
+    def __init__(self, init_node, setup_robots=True, downsample_scale=1):
         self.puppet_bot_left = InterbotixManipulatorXS(robot_model="vx300s", group_name="arm", gripper_name="gripper",
                                                        robot_name=f'puppet_left', init_node=init_node)
         self.puppet_bot_right = InterbotixManipulatorXS(robot_model="vx300s", group_name="arm", gripper_name="gripper",
@@ -49,6 +50,7 @@ class RealEnv:
         self.recorder_right = Recorder('right', init_node=False)
         self.image_recorder = ImageRecorder(init_node=False)
         self.gripper_command = JointSingleCommand(name="gripper")
+        self.downsample_scale = downsample_scale
 
     def setup_robots(self):
         setup_puppet_bot(self.puppet_bot_left)
@@ -80,7 +82,13 @@ class RealEnv:
         return np.concatenate([left_robot_effort, right_robot_effort])
 
     def get_images(self):
-        return self.image_recorder.get_images()
+        original = self.image_recorder.get_images()
+        resized = dict()
+        for key, value in original.items():
+            h, w, _ = original[key].shape
+            nh, nw = h // self.downsample_scale, w // self.downsample_scale
+            resized[key] = cv2.resize(value, (nw, nh), interpolation=cv2.INTER_AREA)
+        return resized
 
     def set_gripper_pose(self, left_gripper_desired_pos_normalized, right_gripper_desired_pos_normalized):
         left_gripper_desired_joint = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(left_gripper_desired_pos_normalized)
@@ -151,8 +159,8 @@ def get_action(master_bot_left, master_bot_right):
     return action
 
 
-def make_real_env(init_node, setup_robots=True):
-    env = RealEnv(init_node, setup_robots)
+def make_real_env(init_node, setup_robots=True, downsample_scale=1):
+    env = RealEnv(init_node, setup_robots, downsample_scale)
     return env
 
 
