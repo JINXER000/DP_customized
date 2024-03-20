@@ -16,16 +16,6 @@ python train.py \
     --config-name train_diffusion_unet_ddim_image_workspace \
     task=sim_transfer_cube_human
 
-## == hang == ##
-
-python train.py \
-    --config-name train_diffusion_unet_ddim_image_workspace \
-    task=sim_transfer_cube_human
-
-python train.py \
-    --config-name train_diffusion_unet_ddim_image_workspace_real \
-    task=aloha_insert_10s
-
 # python train.py --config-name train_diffusion_transformer_image_workspace task=square_image_abs
 
 
