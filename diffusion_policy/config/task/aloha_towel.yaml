@@ -1,5 +1,5 @@
-name: &name aloha_battery
-dataset_dir: &dataset_dir data/aloha/datasets/aloha_battery
+name: &name aloha_towel
+dataset_dir: &dataset_dir data/aloha/datasets/aloha_towel
 
 ## version.1 - multi-view observation are independently encoded
 dataset_target: &dataset_target diffusion_policy.dataset.aloha_image_dataset_multi.AlohaImageDataset
