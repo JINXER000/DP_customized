@@ -34,17 +34,20 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 @click.command()
 @click.option('--input', '-i', required=True, help='Path to checkpoint')
 @click.option('--output', '-o', required=True, help='Directory to save recording')
-@click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
-@click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
+# @click.option('--vis_camera_idx', default=0, type=int, help="Which RealSense camera to visualize.")
+# @click.option('--steps_per_inference', '-si', default=6, type=int, help="Action horizon for inference.")
 @click.option('--max_timesteps', '-md', default=500, help='Max duration for each epoch in seconds.')
 @click.option('--frequency', '-f', default=50, type=float, help="Control frequency in Hz.")
 @click.option('--num_inference_steps', '-n', default=16, type=int, help="DDIM inference iterations.")
-def main(input, output,
-    vis_camera_idx, 
-    steps_per_inference, 
+@click.option('--scale', '-s', default=4, type=int, help="Image downsample scale")
+def main(input, 
+         output,
+    # vis_camera_idx, 
+    # steps_per_inference, 
     max_timesteps,
     frequency,
-    num_inference_steps):
+    num_inference_steps,
+    scale):
 
     ### load checkpoint
     ckpt_path = input
@@ -80,6 +83,18 @@ def main(input, output,
         # set inference params
         policy.num_inference_steps = num_inference_steps #16 # [DDIM inference iterations]
         #policy.n_action_steps = policy.horizon - policy.n_obs_steps + 1
+    elif 'train_consistency_unet_image' in cfg.name:
+        # consistency model
+        policy: BaseImagePolicy
+        policy = workspace.model
+        if cfg.training.use_ema:
+            policy = workspace.ema_model
+
+        device = torch.device('cuda')
+        policy.eval().to(device)
+
+        # set inference params
+        policy.num_inference_steps = num_inference_steps #
     else:
         raise RuntimeError("Unsupported policy type: ", cfg.name)
     
@@ -99,7 +114,7 @@ def main(input, output,
     print("action_offset:", action_offset) ## what is action offset?
 
     ## load aloha env
-    env = make_real_env(init_node=True, downsample_scale=4)
+    env = make_real_env(init_node=True, downsample_scale=scale)
     env_max_reward = 0
 
     ## rollout
@@ -139,7 +154,6 @@ def main(input, output,
                     obs_dict_np[cam_name] = images_history[cam_name][t_idx-n_obs_steps:t_idx] ## [n_obs_steps, c, h, w]
 
                 print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
-                # ipdb.set_trace()
 
                 ''' get action sequence '''
                 s = time.time()
@@ -147,6 +161,7 @@ def main(input, output,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 print(f"Execution Policy: {time.time() - s:.3f} seconds")
+                # ipdb.set_trace()
 
                 action_seq = result['action'][0].detach().to('cpu').numpy()
                 
@@ -158,6 +173,7 @@ def main(input, output,
 
                     t_idx += 1
                     if t_idx == max_timesteps+n_obs_steps:
+                        # ipdb.set_trace()
                         break
                 
                 if t_idx >= max_timesteps+n_obs_steps:
