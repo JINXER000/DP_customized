@@ -102,7 +102,7 @@ training:
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 600
+  num_epochs: 1205
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -112,7 +112,7 @@ training:
   # in epochs
   checkpoint_every: 25
   val_every: 25
-  sample_every: 25
+  sample_every: 5
   # steps per epoch
   max_train_steps: null
   max_val_steps: null
@@ -130,10 +130,10 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: train_action_mse_error
+    monitor_key: train_loss
     mode: min
     k: 5
-    format_str: 'epoch={epoch:04d}-train_action_mse_error={train_action_mse_error:.4f}.ckpt'
+    format_str: 'epoch={epoch:04d}-train_loss={train_loss:.4f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False
 
