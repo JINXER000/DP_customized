@@ -21,12 +21,15 @@ from tqdm import tqdm
 @click.option('--task', '-t',  required=True)
 @click.option('--num_episodes', '-n', default=50, type=int)
 @click.option('--scale', '-s', default=4, type=int)
-def main(task, num_episodes, scale):
+@click.option('--data_dir', default="/home/xuhang/aloha_data/", required=True,  type=str)
+def main(task, num_episodes, scale, data_dir):
     proj_dir = pathlib.Path(__file__).parent.parent.parent
-    dataset_dir = proj_dir / f"data/aloha/datasets/{task}/original"
+    # dataset_dir = proj_dir / f"data/aloha/datasets/{task}/original"
+    dataset_dir = os.path.join(data_dir, task, "original")
     dataset_dir = str(pathlib.Path(dataset_dir).expanduser())
 
     output_dir = proj_dir / f"data/aloha/datasets/{task}/"
+    output_dir = os.path.join(data_dir, task)
     output_dir = str(pathlib.Path(output_dir).expanduser())
 
     original_shape = None
