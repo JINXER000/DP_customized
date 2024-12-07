@@ -11,6 +11,7 @@
 *.bak
 *.swp
 
+
 # common dirs
 .idea/
 .vscode/
@@ -24,3 +25,4 @@ logs/
 logs-*
 *.log
 /data/
+/aloha/
