@@ -3,7 +3,7 @@ defaults:
   - task: lift_image_abs
 
 name: train_consistency_unet_image
-_target_: diffusion_policy.workspace.train_consistency_unet_image_workspace_aloha.TrainConsistencyUnetImageWorkspace
+_target_: diffusion_policy.workspace.train_consistency_unet_image_workspace_aloha_sim.TrainConsistencyUnetImageWorkspace
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -54,7 +54,7 @@ policy:
     start_scales: 2
     end_scales: 200
     distill_steps_per_iter: 50000
-    loss_norm: "l2"
+    loss_norm: lpips #"l2"
 
   sample:
     sampler: "onestep"
@@ -75,10 +75,8 @@ policy:
       _target_: diffusion_policy.model.vision.model_getter.get_resnet
       name: resnet18
       weights: null
-    resize_shape: null ## for aloha_image_dataset_multi, [480, 640] / 4 * 0.6
-    crop_shape: [110, 150] ## for aloha_image_dataset_multi
-    # resize_shape: [240, 80] ## for aloha_image_dataset_concat, [1920, 640] / 8
-    # crop_shape: null ## for aloha_image_dataset_concat
+    resize_shape: [120, 160] ## /4
+    crop_shape: [110, 150] ## [110, 150]
     # constant center crop
     random_crop: True
     use_group_norm: True
@@ -108,19 +106,19 @@ ema:
   max_value: 0.9999
 
 dataloader:
-  batch_size: 64
-  num_workers: 16
+  batch_size: 128 #64
+  num_workers: 8 #16
   shuffle: True
   pin_memory: True
-  persistent_workers: True
-  # prefetch_factor: 8
+  persistent_workers: False
+  # prefetch_factor: 4
 
 val_dataloader:
-  batch_size: 64
-  num_workers: 16
+  batch_size: 128 #64
+  num_workers: 8 #16
   shuffle: False
   pin_memory: True
-  persistent_workers: True
+  persistent_workers: False
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -137,7 +135,7 @@ training:
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1205
+  num_epochs: 2505 #1205
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -145,9 +143,9 @@ training:
   freeze_encoder: False
   # training loop control
   # in epochs
-  rollout_every: 25
-  checkpoint_every: 25
-  val_every: 25
+  rollout_every: 50
+  checkpoint_every: 50
+  val_every: 50
   sample_every: 5
   # steps per epoch
   max_train_steps: null
@@ -156,7 +154,7 @@ training:
   tqdm_interval_sec: 1.0
 
 logging:
-  project: consistency_policy_on_aloha_real
+  project: consistency_ALOHA_sim
   resume: True
   mode: online
   name: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
@@ -166,10 +164,10 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: train_loss # val_action_mse_error #train_action_mse_error # test_mean_score
-    mode: min
+    monitor_key: test_mean_score # val_action_mse_error #train_action_mse_error # 
+    mode: max # min
     k: 5
-    format_str: 'epoch={epoch:04d}-train_loss={train_loss:.3f}.ckpt' # follow monitor_key
+    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt' # follow monitor_key
   save_last_ckpt: True
   save_last_snapshot: False
 

@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: lift_image_abs
+  - task: aloha_insert_10s
 
 name: train_consistency_unet_image
 _target_: diffusion_policy.workspace.train_consistency_unet_image_workspace_aloha.TrainConsistencyUnetImageWorkspace
@@ -83,7 +83,7 @@ policy:
     random_crop: True
     use_group_norm: True
     share_rgb_model: False
-    imagenet_norm: True
+    imagenet_norm: False
 
   horizon: ${horizon}
   n_action_steps: ${eval:'${n_action_steps}+${n_latency_steps}'}
@@ -110,17 +110,16 @@ ema:
 dataloader:
   batch_size: 64
   num_workers: 16
-  shuffle: True
   pin_memory: True
   persistent_workers: True
-  # prefetch_factor: 8
+  prefetch_factor: 12
 
 val_dataloader:
   batch_size: 64
   num_workers: 16
-  shuffle: False
   pin_memory: True
   persistent_workers: True
+  prefetch_factor: 12
 
 optimizer:
   _target_: torch.optim.AdamW
@@ -130,14 +129,14 @@ optimizer:
   weight_decay: 1.0e-6
 
 training:
-  device: "cuda:0"
+  device: "cuda"
   seed: 42
   debug: False
   resume: True
   # optimization
   lr_scheduler: cosine
   lr_warmup_steps: 500
-  num_epochs: 1205
+  num_epochs: 600
   gradient_accumulate_every: 1
   # EMA destroys performance when used with BatchNorm
   # replace BatchNorm with GroupNorm.
@@ -145,10 +144,9 @@ training:
   freeze_encoder: False
   # training loop control
   # in epochs
-  rollout_every: 25
-  checkpoint_every: 25
-  val_every: 25
-  sample_every: 5
+  checkpoint_every: 50
+  val_every: 50
+  sample_every: 25
   # steps per epoch
   max_train_steps: null
   max_val_steps: null
