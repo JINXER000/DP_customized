@@ -84,11 +84,16 @@ class RealEnv:
     def get_images(self):
         original = self.image_recorder.get_images()
         resized = dict()
+        out = dict()
         for key, value in original.items():
             h, w, _ = original[key].shape
             nh, nw = h // self.downsample_scale, w // self.downsample_scale
             resized[key] = cv2.resize(value, (nw, nh), interpolation=cv2.INTER_AREA)
-        return resized
+        for key, value in original.items():
+            h, w, _ = original[key].shape
+            nh, nw = h // 2, w // 2
+            out[key] = cv2.resize(value, (nw, nh), interpolation=cv2.INTER_AREA)
+        return resized, out
 
     def set_gripper_pose(self, left_gripper_desired_pos_normalized, right_gripper_desired_pos_normalized):
         left_gripper_desired_joint = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(left_gripper_desired_pos_normalized)
@@ -113,7 +118,7 @@ class RealEnv:
         obs['qpos'] = self.get_qpos()
         obs['qvel'] = self.get_qvel()
         obs['effort'] = self.get_effort()
-        obs['images'] = self.get_images()
+        obs['images'], obs['original_images'] = self.get_images()
         return obs
 
     def get_reward(self):
