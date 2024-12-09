@@ -1,6 +1,8 @@
 from typing import Optional, Callable, Generator
 import numpy as np
 import av
+from einops import rearrange
+
 from diffusion_policy.common.timestamp_accumulator import get_accumulate_timestamp_idxs
 
 def read_video(
@@ -159,3 +161,38 @@ class VideoRecorder:
 
         # reset runtime parameters
         self._reset_state()
+
+
+def save_videos(video, dt, video_path=None):
+    assert isinstance(video, list), "video should be a list of dict of images"
+    
+    # get necessary params
+    camera_names = list(video[0].keys())
+    h, w, _ = video[0][camera_names[0]].shape
+    n_cam = len(camera_names)
+    max_steps = len(video)
+    rgb_seq = np.full((max_steps, n_cam, h, w, 3), np.nan, dtype=np.uint8)
+
+    for i, cam_name in enumerate(camera_names):
+        # concat all images from cam_name
+        images_cam = np.stack(
+            [video[t][cam_name] for t in range(max_steps)],
+            axis=0
+        )  # (t, h, w, 3)
+        rgb_seq[:, i] = images_cam
+    rgb_seq = rearrange(rgb_seq, 't n h w c-> t h (n w) c')
+
+    video_recorder = VideoRecorder.create_h264(
+        fps=int(1 / dt),
+        codec="h264",
+        input_pix_fmt="rgb24",
+        crf=22,
+        thread_type="FRAME",
+        thread_count=1,
+    )
+    video_recorder.stop()
+    video_recorder.start(video_path)
+    for rgb in rgb_seq:
+        video_recorder.write_frame(rgb)
+    video_recorder.stop()
+    print(f'Saved video to: {video_path}')
