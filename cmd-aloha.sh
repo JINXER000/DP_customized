@@ -53,3 +53,48 @@ python eval_aloha.py \
 python eval_aloha.py \
  -i ./data/outputs/2024.03.18/16.08.45_train_diffusion_unet_image_aloha_insert_10s_random_init/checkpoints/latest.ckpt \
  -o ./data/outputs/2024.03.18/16.08.45_train_diffusion_unet_image_aloha_insert_10s_random_init/
+
+ ## == demo == ##
+
+python eval_aloha.py \
+    -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.04.18/19.40.33_train_diffusion_unet_image_aloha_screwdriver/checkpoints/latest.ckpt \
+    -o nan
+
+python eval_aloha.py \
+    -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.04.18/19.42.00_train_consistency_unet_image_aloha_screwdriver/checkpoints/latest.ckpt \
+    -o nan
+
+## == aloha eval - conveyor == ##
+
+python eval_aloha.py \
+ -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.06.06/23.48.30_train_consistency_unet_image_aloha_conveyor/checkpoints/latest.ckpt \
+ -o nan
+
+ python eval_aloha.py \
+ -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.06.06/23.49.27_train_diffusion_unet_image_aloha_conveyor/checkpoints/latest.ckpt \
+ -o nan
+
+
+ ## == aloha eval - starbucks == ##
+
+python eval_aloha.py \
+ -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.06.08/12.53.50_train_consistency_unet_image_aloha_starbucks/checkpoints/latest.ckpt \
+ -o nan
+
+ python eval_aloha.py \
+ -i /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/outputs/2024.06.08/12.52.52_train_diffusion_unet_image_aloha_starbucks/checkpoints/latest.ckpt  \
+ -o nan
+
+### aloha eval - hang_pants ###
+
+
+python eval_aloha_hitl.py \
+ -i /ssd1/xuhang/dp_ckpt/2024.12.08/00.51.22_train_diffusion_unet_image_aloha_hang_pants/checkpoints/latest.ckpt  \
+ -o /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/eval/hang_pants/ \
+ -t 1000
+
+ python eval_aloha_hitl.py \
+ -i /ssd1/xuhang/dp_ckpt/2024.12.08/00.53.02_train_consistency_unet_image_aloha_hang_pants/checkpoints/latest.ckpt  \
+ -o /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/eval/hang_pants/ \
+ -t 1000
+
