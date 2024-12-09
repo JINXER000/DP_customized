@@ -143,7 +143,8 @@ def main(input,
             ) ## [max_timesteps, c, h, w]
 
         qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
-
+        ep_t0 = time.perf_counter()
+        step_time_list = []
         with torch.inference_mode():
             ## loop max_timesteps
             while True:
@@ -156,11 +157,13 @@ def main(input,
                 print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
 
                 ''' get action sequence '''
-                s = time.time()
+                t0 = time.perf_counter()
                 obs_dict = dict_apply(obs_dict_np, 
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
-                print(f"Execution Policy: {time.time() - s:.3f} seconds")
+                t1 = time.perf_counter()
+                print(f"Execution Policy: {t1 - t0:.4f} [s]")
+                step_time_list.append(t1 - t0)
                 # ipdb.set_trace()
 
                 action_seq = result['action'][0].detach().to('cpu').numpy()
@@ -182,7 +185,9 @@ def main(input,
     ### move grippers
     PUPPET_GRIPPER_JOINT_OPEN = 1.4910
     move_grippers([env.puppet_bot_left, env.puppet_bot_right], [PUPPET_GRIPPER_JOINT_OPEN] * 2, move_time=0.5)  # open
-    pass
+    ep_t1 = time.perf_counter()
+    print(f"Average step time: {np.mean(step_time_list[1:]):.4f} +/- {np.std(step_time_list[1:]):.4f} s")
+    print(f"Total time: {ep_t1 - ep_t0:.4f} s")
 
     #     ## statistics
     #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
