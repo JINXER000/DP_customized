@@ -1,0 +1,26 @@
+## DEV
+
+### environment update
+
+robomimic 0.2.0 does not have dexmimicgen and libero. 
+Following https://github.com/JINXER000/dexmimicgen, 
+I upgraded it to 0.3.1. 
+```
+git clone https://github.com/ARISE-Initiative/robomimic.git -b dexmimicgen
+cd robomimic
+pip install -e .
+```
+Robosuite is updated to 1.5.1. But robomimic still fails to import robosuite. 
+After debugging, I found the problem: there is a numba.py under robosuite.utils, which import numba again,
+making python confused as a circular import. I renamed it to numba_utils.py.
+
+Another revision:
+```
+import robomimic.models.obs_core as rmbn
+```
+
+## train dexmimicgen
+```
+conda activate robodiff2
+python train.py --config-name train_robomimic_image_transformer training.device=cuda:1 "task=two_arm_threading_image"
+```
