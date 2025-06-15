@@ -19,6 +19,7 @@ import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
 
+from scripts.robomimic_dmg_wrapper import DMG_env_switchable
 
 def create_env(env_meta, shape_meta, enable_render=True, use_onscreen_renderer = True):
     modality_mapping = collections.defaultdict(list)
@@ -32,6 +33,10 @@ def create_env(env_meta, shape_meta, enable_render=True, use_onscreen_renderer =
         render_offscreen=enable_render,
         use_image_obs=enable_render, 
     )
+    # env = DMG_env_switchable(
+    #     env_name = env_meta['env_name'],
+    #     cam_names = ["agentview",  "robot0_eye_in_hand", "robot1_eye_in_hand"]
+    # )
     return env
 
 

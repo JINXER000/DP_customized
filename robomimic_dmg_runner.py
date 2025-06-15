@@ -48,19 +48,7 @@ def get_seq_obs(obs_history, t, n_obs_steps):
             obs_dict_np[k] = v[t-n_obs_steps+1:t+1]
     return obs_dict_np
 
-def create_env(env_meta, shape_meta, enable_render=True, use_onscreen_renderer = True):
-    modality_mapping = collections.defaultdict(list)
-    for key, attr in shape_meta['obs'].items():
-        modality_mapping[attr.get('type', 'low_dim')].append(key)
-    ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
 
-    env = EnvUtils.create_env(
-        env_meta=env_meta,
-        render=use_onscreen_renderer, 
-        render_offscreen=enable_render,
-        use_image_obs=enable_render, 
-    )
-    return env
 
 
 class Robosuite_Evaluator():
@@ -74,12 +62,24 @@ class Robosuite_Evaluator():
         self.image_list = []
 
 
-
-
     def initialize_env(self, env_name, reset_grippers= True):
         self.cur_env_name = env_name
         self.load_checkpoint()        
         self.ts = self.reset_all(reset_grippers = reset_grippers)
+
+    # def create_env(self, env_meta, shape_meta, enable_render=True, use_onscreen_renderer = True):
+    #     modality_mapping = collections.defaultdict(list)
+    #     for key, attr in shape_meta['obs'].items():
+    #         modality_mapping[attr.get('type', 'low_dim')].append(key)
+    #     ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
+
+    #     env = EnvUtils.create_env(
+    #         env_meta=env_meta,
+    #         render=use_onscreen_renderer, 
+    #         render_offscreen=enable_render,
+    #         use_image_obs=enable_render, 
+    #     )
+    #     return env
 
     def load_checkpoint(self):
         # load checkpoint
@@ -208,18 +208,16 @@ def wrapper_test():
     max_timesteps = 500
     num_inference_steps = 10
 
-    dp = Robosuite_Evaluator(checkpoint_dict, output, max_timesteps, num_inference_steps)
+    env_runer = Robosuite_Evaluator(checkpoint_dict, output, max_timesteps, num_inference_steps)
     
     for skill in env_names:
-        dp.initialize_env(skill)
+        env_runer.initialize_env(skill)
         for i in range(max_timesteps):
-            dp.inference_once()
-            dp.env_runner.env.render()
+            env_runer.inference_once()
+            env_runer.env.env.render()
             # dp.append_image()
 
-        dp.exit()
-
-    dp.exit(output)
+    env_runer.exit(output)
 
 
 if __name__ == '__main__':
