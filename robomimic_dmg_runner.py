@@ -15,9 +15,7 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
-from scripts.eval_dmg_wrapper import DMG_env_switchable
-import collections
-import robomimic.utils.obs_utils as ObsUtils
+from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case
 
 
 def collect_obs(obs_shape_meta, obs_history, t, obs):
@@ -67,20 +65,6 @@ class Robosuite_Evaluator():
         self.load_checkpoint()        
         self.ts = self.reset_all(reset_grippers = reset_grippers)
 
-    # def create_env(self, env_meta, shape_meta, enable_render=True, use_onscreen_renderer = True):
-    #     modality_mapping = collections.defaultdict(list)
-    #     for key, attr in shape_meta['obs'].items():
-    #         modality_mapping[attr.get('type', 'low_dim')].append(key)
-    #     ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
-
-    #     env = EnvUtils.create_env(
-    #         env_meta=env_meta,
-    #         render=use_onscreen_renderer, 
-    #         render_offscreen=enable_render,
-    #         use_image_obs=enable_render, 
-    #     )
-    #     return env
-
     def load_checkpoint(self):
         # load checkpoint
         payload = torch.load(open(self.checkpoint_dict[self.cur_env_name], 'rb'), pickle_module=dill)
@@ -126,11 +110,12 @@ class Robosuite_Evaluator():
         self.n_obs_steps = cfg.n_obs_steps
 
         ## setup environment
-        self.env = DMG_env_switchable(self.cur_env_name, controller_name = "OSC_POSE", abs_action = False, H = 84, W= 84, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
+        env_name = to_camel_case(self.cur_env_name)
+        self.env = DMG_env_switchable(env_name, controller_name = "OSC_POSE", abs_action = False, H = 84, W= 84, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
         
 
     def reset_all(self, reset_grippers = True):
-        ts = self.env.reset(with_planning=self.with_planning)
+        ts = self.env.reset_ts(with_planning=self.with_planning)
 
             
         ## obs history for extracting multi-step obs
@@ -162,7 +147,7 @@ class Robosuite_Evaluator():
             action = self.np_action_seq[self.t % self.query_cycle]
             # t1 = time.perf_counter()
 
-            self.ts = self.env.step(action)
+            self.ts = self.env.step_ts(action)
 
             self.t += 1
         return False

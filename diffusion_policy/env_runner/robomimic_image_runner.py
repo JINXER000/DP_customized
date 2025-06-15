@@ -27,16 +27,16 @@ def create_env(env_meta, shape_meta, enable_render=True, use_onscreen_renderer =
         modality_mapping[attr.get('type', 'low_dim')].append(key)
     ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
 
-    env = EnvUtils.create_env_from_metadata(
-        env_meta=env_meta,
-        render=use_onscreen_renderer, 
-        render_offscreen=enable_render,
-        use_image_obs=enable_render, 
-    )
-    # env = DMG_env_switchable(
-    #     env_name = env_meta['env_name'],
-    #     cam_names = ["agentview",  "robot0_eye_in_hand", "robot1_eye_in_hand"]
+    # env = EnvUtils.create_env_from_metadata(
+    #     env_meta=env_meta,
+    #     render=use_onscreen_renderer, 
+    #     render_offscreen=enable_render,
+    #     use_image_obs=enable_render, 
     # )
+    env = DMG_env_switchable(
+        env_name = env_meta['env_name'],
+        cam_names = ["agentview",  "robot0_eye_in_hand", "robot1_eye_in_hand", "birdview", "frontview"]
+    )
     return env
 
 
