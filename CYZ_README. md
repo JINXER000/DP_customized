@@ -12,7 +12,13 @@ pip install -e .
 ```
 Robosuite is updated to 1.5.1. But robomimic still fails to import robosuite. 
 After debugging, I found the problem: there is a numba.py under robosuite.utils, which import numba again,
-making python confused as a circular import. I renamed it to numba_utils.py.
+making python confused as a circular import. I renamed it to numba_utils.py, so please download the customized version: https://github.com/JINXER000/robosuite_costomized.git.
+If you have installed robosuite before, make sure to delete it completely.
+Check using
+```
+ls -la /home/user/miniforge3/envs/robodiff2/lib/python3.9/site-packages | grep robosuite
+```
+Delete if there is left over files.
 
 Another revision:
 ```
@@ -23,4 +29,15 @@ import robomimic.models.obs_core as rmbn
 ```
 conda activate robodiff2
 python train.py --config-name train_robomimic_image_transformer training.device=cuda:1 "task=two_arm_threading_image"
+```
+
+## eval dexmimicgen
+```console
+python eval.py --checkpoint data/outputs/two_arm_assembly/latest.ckpt --output_dir data/outputs/two_arm_assembly/eval --device cuda:0
+```
+
+There may be compatiblity issues during evaluation.  If issues are related to Mujoco, please run
+```
+pip install mujoco==3.3.2
+pip install PyOpenGL==3.1.7
 ```
