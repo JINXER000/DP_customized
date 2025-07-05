@@ -16,7 +16,7 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
 from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case
-
+import cv2
 
 def collect_obs(obs_shape_meta, obs_history, t, obs):
     """
@@ -25,7 +25,15 @@ def collect_obs(obs_shape_meta, obs_history, t, obs):
     RGB images are expected to be in channels-first format (C,H,W).
     """
     for k, v in obs_shape_meta.items():
-        obs_history[k][t] = obs[k].astype(np.float32)
+        tgt_shape = v['shape']
+        if len(tgt_shape)==3 and v["type"] == "rgb" and obs[k].shape!= tgt_shape:
+            ## resize image
+            img_hwc = np.transpose(obs[k].astype(np.float32), (1, 2, 0))
+            img_resized = cv2.resize(img_hwc, (tgt_shape[1], tgt_shape[2]), interpolation=cv2.INTER_LINEAR)
+            cur_obs = np.transpose(img_resized, (2, 0, 1))  # Convert to channels-first format
+        else:
+            cur_obs = obs[k].astype(np.float32)
+        obs_history[k][t] = cur_obs
     return
 
 
@@ -50,7 +58,8 @@ def get_seq_obs(obs_history, t, n_obs_steps):
 
 
 class Robosuite_Evaluator():
-    def __init__(self, checkpoint_dict, output, max_timesteps, num_inference_steps, with_planning= False):
+    def __init__(self, checkpoint_dict, output, max_timesteps, \
+                 num_inference_steps, with_planning= False, scale = 1.0):
         self.max_timesteps = max_timesteps
         self.checkpoint_dict = checkpoint_dict
         self.output = output
@@ -60,12 +69,12 @@ class Robosuite_Evaluator():
         self.image_list = []
 
 
-    def initialize_env(self, env_name, reset_grippers= True):
+    def initialize_env(self, env_name, reset_grippers= True, **kwargs):
         self.cur_env_name = env_name
-        self.load_checkpoint()        
+        self.load_checkpoint(**kwargs)        
         self.ts = self.reset_all(reset_grippers = reset_grippers)
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", **kwargs):
         # load checkpoint
         payload = torch.load(open(self.checkpoint_dict[self.cur_env_name], 'rb'), pickle_module=dill)
         cfg = payload['cfg']
@@ -111,7 +120,7 @@ class Robosuite_Evaluator():
 
         ## setup environment
         env_name = to_camel_case(self.cur_env_name)
-        self.env = DMG_env_switchable(env_name, controller_name = "OSC_POSE", abs_action = False, H = 84, W= 84, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
+        self.env = DMG_env_switchable(env_name, controller_name = controller_name, abs_action = False, H = height, W= width, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
         
 
     def reset_all(self, reset_grippers = True):
@@ -128,7 +137,13 @@ class Robosuite_Evaluator():
         self.t = 0
         return ts
 
-    def inference_once(self):
+    def replay_tamp_step(self, total_action):
+        self.ts = self.env.replay_tamp_step(total_action)
+        return self.ts
+    # def get_mj_pc_dict(self, **kwargs):
+    #     return self.env.save_mj_observation(**kwargs)
+
+    def inference_once(self, render = True):
         if self.t >= self.max_timesteps:
             return True
         with torch.inference_mode():
@@ -150,7 +165,11 @@ class Robosuite_Evaluator():
             self.ts = self.env.step_ts(action)
 
             self.t += 1
-        return False
+
+        if render:
+            self.env.env.render()
+
+        return self.ts.done
 
     def append_image(self):
         cam_high_image = self.env.image_recorder.cam_high_image
@@ -159,6 +178,9 @@ class Robosuite_Evaluator():
         self.image_list.append({'cam_high':cam_high_image})
 
     def exit(self, save_dir):
+        if len(self.image_list) == 0:
+            print("No images to save.")
+            return
         # save_videos(self.image_list, DT, video_path=os.path.join(save_dir, f'rollout.mp4'))
         import cv2
         if not os.path.exists(save_dir):
@@ -186,7 +208,8 @@ class Robosuite_Evaluator():
 def wrapper_test():
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        'two_arm_three_piece_assembly': 'data/outputs/two_arm_assembly/latest.ckpt'
+        # 'two_arm_three_piece_assembly': 'data/outputs/two_arm_assembly/latest.ckpt',
+        'two_arm_threading': 'data/outputs/two_arm_threading/latest.ckpt',
                        }
     env_names = list(checkpoint_dict.keys())
 
@@ -196,10 +219,13 @@ def wrapper_test():
     env_runer = Robosuite_Evaluator(checkpoint_dict, output, max_timesteps, num_inference_steps)
     
     for skill in env_names:
-        env_runer.initialize_env(skill)
+        env_runer.initialize_env(skill, width = 168, height = 168)
         for i in range(max_timesteps):
-            env_runer.inference_once()
-            env_runer.env.env.render()
+            done = env_runer.inference_once()
+            task_success = env_runer.env.handle_rewards()
+            if task_success:
+                print('Task completed!')
+                break
             # dp.append_image()
 
     env_runer.exit(output)
