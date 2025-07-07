@@ -1,7 +1,6 @@
 from typing import Optional, Callable, Generator
 import numpy as np
 import av
-from diffusion_policy.common.timestamp_accumulator import get_accumulate_timestamp_idxs
 
 def read_video(
         video_path: str, dt: float,
@@ -12,6 +11,8 @@ def read_video(
         thread_count: int=0,
         max_pad_frames: int=10
         ) -> Generator[np.ndarray, None, None]:
+    from diffusion_policy.common.timestamp_accumulator import get_accumulate_timestamp_idxs
+
     frame = None
     with av.open(video_path) as container:
         stream = container.streams.video[0]

@@ -14,6 +14,7 @@ import hydra
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
+from diffusion_policy.gym_util.video_recording_wrapper import VideoRecorder
 
 from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case
 import cv2
@@ -58,16 +59,33 @@ def get_seq_obs(obs_history, t, n_obs_steps):
 
 
 class Robosuite_Evaluator():
-    def __init__(self, checkpoint_dict, output, max_timesteps, \
-                 num_inference_steps, with_planning= False, scale = 1.0):
+    def __init__(self, checkpoint_dict, output, max_timesteps,                 num_inference_steps, with_planning= False, scale = 1.0, fps = 10, crf = 22, record = False):
         self.max_timesteps = max_timesteps
         self.checkpoint_dict = checkpoint_dict
         self.output = output
         self.num_inference_steps = num_inference_steps
 
         self.with_planning = with_planning  
-        self.image_list = []
-
+        
+        ## config image recording
+        if record:
+            self.video_recorder = VideoRecorder.create_h264(
+                            fps=fps,
+                            codec='h264',
+                            input_pix_fmt='rgb24',
+                            crf=crf,
+                            thread_type='FRAME',
+                            thread_count=1
+                        )
+            save_dir = output
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
+            self.file_path = os.path.join(save_dir,  'test_' +cur_time +'.mp4')
+            print(f"Video will be saved to: {self.file_path}")
+        else:
+            self.file_path = None
+            self.video_recorder = None
 
     def initialize_env(self, env_name, reset_grippers= True, **kwargs):
         self.cur_env_name = env_name
@@ -137,8 +155,25 @@ class Robosuite_Evaluator():
         self.t = 0
         return ts
 
+    def record_frame(self, obs):
+
+        if self.video_recorder is not None:
+            try:
+                if not self.video_recorder.is_ready():
+                    self.video_recorder.start(self.file_path)
+
+                img = np.moveaxis(obs['agentview_image'], 0, -1)
+                frame = (img * 255).astype(np.uint8) 
+                
+                self.video_recorder.write_frame(frame)
+            except Exception as e:
+                print(f"Warning: Failed to record video frame: {e}")
+                import traceback
+                traceback.print_exc()
+
     def replay_tamp_step(self, total_action):
         self.ts = self.env.replay_tamp_step(total_action)
+        self.record_frame(self.ts.observation)
         return self.ts
     # def get_mj_pc_dict(self, **kwargs):
     #     return self.env.save_mj_observation(**kwargs)
@@ -169,39 +204,47 @@ class Robosuite_Evaluator():
         if render:
             self.env.env.render()
 
+        self.record_frame(obs)
+
         return self.ts.done
 
-    def append_image(self):
-        cam_high_image = self.env.image_recorder.cam_high_image
-        # import cv2
-        # cam_high_image = cv2.resize(cam_high_image, (240, 320))
-        self.image_list.append({'cam_high':cam_high_image})
-
     def exit(self, save_dir):
-        if len(self.image_list) == 0:
-            print("No images to save.")
-            return
-        # save_videos(self.image_list, DT, video_path=os.path.join(save_dir, f'rollout.mp4'))
-        import cv2
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
-        vid_save_path = os.path.join(save_dir,  'test_' +cur_time +'.avi')
-
-        height, width, _ = self.image_list[0]['cam_high'].shape
-        fps = 30  # Adjust based on your camera settings
-        self.video_writer = cv2.VideoWriter(
-            vid_save_path,
-            cv2.VideoWriter_fourcc(*'XVID'),
-            fps,
-            ( width,height)
-        )
-        for image in self.image_list:
-            rgb_image = cv2.cvtColor(image['cam_high'], cv2.COLOR_BGR2RGB)
-            # transpose image width and height
-            self.video_writer.write(rgb_image)
-        self.video_writer.release()
-        print(f"Saved video to {vid_save_path}")
+     
+        if self.video_recorder is not None:
+            try:
+                self.video_recorder.stop()
+                print(f"Video saved to: {self.file_path}")
+                
+                # Verify the video file was created and is valid
+                if os.path.exists(self.file_path):
+                    file_size = os.path.getsize(self.file_path)
+                    if file_size > 0:
+                        print(f"Video file created successfully. Size: {file_size} bytes")
+                        
+                        # Check if the video needs to be converted to proper MP4 format
+                        import subprocess
+                        try:
+                            # Use ffprobe to check the container format
+                            result = subprocess.run(['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', self.file_path], 
+                                                  capture_output=True, text=True)
+                            if result.returncode == 0:
+                                # Video is valid, try to ensure it's properly formatted
+                                temp_path = self.file_path.replace('.mp4', '_temp.mp4')
+                                subprocess.run(['ffmpeg', '-i', self.file_path, '-c', 'copy', '-f', 'mp4', temp_path], 
+                                             capture_output=True)
+                                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                                    os.replace(temp_path, self.file_path)
+                                    print("Video converted to proper MP4 format")
+                        except Exception as e:
+                            print(f"Warning: Could not post-process video: {e}")
+                    else:
+                        print("Warning: Video file is empty!")
+                else:
+                    print("Warning: Video file was not created!")
+                    
+            except Exception as e:
+                print(f"Error stopping video recorder: {e}")
+        return self.file_path
 
 
 
