@@ -16,7 +16,7 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecorder
 
-from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case
+from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case, ts_tuple
 import cv2
 
 def collect_obs(obs_shape_meta, obs_history, t, obs):
@@ -58,8 +58,10 @@ def get_seq_obs(obs_history, t, n_obs_steps):
 
 
 
-class Robosuite_Evaluator():
-    def __init__(self, checkpoint_dict, output, max_timesteps,                 num_inference_steps, with_planning= False, scale = 1.0, fps = 10, crf = 22, record = False):
+class Robosuite_Evaluator(DMG_env_switchable):
+    def __init__(self, checkpoint_dict, output, max_timesteps,\
+                 num_inference_steps, with_planning= False, \
+                scale = 1.0, fps = 10, crf = 22, record = False):
         self.max_timesteps = max_timesteps
         self.checkpoint_dict = checkpoint_dict
         self.output = output
@@ -87,10 +89,12 @@ class Robosuite_Evaluator():
             self.file_path = None
             self.video_recorder = None
 
-    def initialize_env(self, env_name, reset_grippers= True, **kwargs):
+        self.env_initialized = False
+
+    def initialize_env(self, env_name,  **kwargs):
         self.cur_env_name = env_name
         self.load_checkpoint(**kwargs)        
-        self.ts = self.reset_all(reset_grippers = reset_grippers)
+        self.ts = self.reset_all()
 
     def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", **kwargs):
         # load checkpoint
@@ -138,11 +142,32 @@ class Robosuite_Evaluator():
 
         ## setup environment
         env_name = to_camel_case(self.cur_env_name)
-        self.env = DMG_env_switchable(env_name, controller_name = controller_name, abs_action = False, H = height, W= width, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
+        ## TODO： switch between different skills.
+        if self.env_initialized:
+            raise NotImplementedError("policy switching is not supported yet")
+        
+        super().__init__(env_name, controller_name=controller_name, abs_action=False, H=height, W=width, cam_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"], **kwargs)
+        self.env_initialized = True
+        # self.env = DMG_env_switchable(env_name, controller_name = controller_name, abs_action = False, H = height, W= width, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
         
 
-    def reset_all(self, reset_grippers = True):
-        ts = self.env.reset_ts(with_planning=self.with_planning)
+    def reset_ts(self, with_planning = False):
+        # if with_planning:
+        #     raise NotImplementedError("Planning is not implemented yet")
+        # else:
+        self.raw_obs = self.env.reset()
+        self.obs = self.get_observation(self.raw_obs)
+        init_ts = ts_tuple(self.obs, 0, False, {})
+        return init_ts
+    
+    def step_ts(self, action):
+        self.raw_obs, reward, done, info = self.env.step(action)
+        self.obs = self.get_observation(self.raw_obs)
+        info["is_success"] = self.is_success()
+        return ts_tuple(self.obs, reward, done, info)
+
+    def reset_all(self):
+        ts = self.reset_ts(with_planning=self.with_planning)
 
             
         ## obs history for extracting multi-step obs
@@ -172,7 +197,18 @@ class Robosuite_Evaluator():
                 traceback.print_exc()
 
     def replay_tamp_step(self, total_action):
-        self.ts = self.env.replay_tamp_step(total_action)
+        # self.ts = self.replay_tamp_step(total_action)
+
+        start = time.time()
+
+        self.ts = self.step_ts(total_action)
+        self.env.render()
+        # limit frame rate if necessary
+        elapsed = time.time() - start
+        diff = 1 / self.max_framerate - elapsed
+        if diff > 0:
+            time.sleep(diff)
+            
         self.record_frame(self.ts.observation)
         return self.ts
     # def get_mj_pc_dict(self, **kwargs):
@@ -197,18 +233,18 @@ class Robosuite_Evaluator():
             action = self.np_action_seq[self.t % self.query_cycle]
             # t1 = time.perf_counter()
 
-            self.ts = self.env.step_ts(action)
+            self.ts = self.step_ts(action)
 
             self.t += 1
 
         if render:
-            self.env.env.render()
+            self.env.render()
 
         self.record_frame(obs)
 
         return self.ts.done
 
-    def exit(self, save_dir):
+    def exit(self):
      
         if self.video_recorder is not None:
             try:
