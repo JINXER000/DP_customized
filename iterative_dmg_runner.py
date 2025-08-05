@@ -15,6 +15,7 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecorder
+from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
 from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case, ts_tuple
 import cv2
@@ -60,17 +61,17 @@ def get_seq_obs(obs_history, t, n_obs_steps):
 
 class Robosuite_Evaluator(DMG_env_switchable):
     def __init__(self, checkpoint_dict, output, max_timesteps,\
-                 num_inference_steps, with_planning= False, \
-                scale = 1.0, fps = 10, crf = 22, record = False):
+                 num_inference_steps,fps = 10, crf = 22, record = False, render_obs_key = ["robot0_eye_in_hand_image", "robot1_eye_in_hand_image"], **kwargs):
         self.max_timesteps = max_timesteps
         self.checkpoint_dict = checkpoint_dict
         self.output = output
         self.num_inference_steps = num_inference_steps
 
-        self.with_planning = with_planning  
         
+        self.lfd_alg = 'DP'
         ## config image recording
         if record:
+            self.render_obs_key = render_obs_key
             self.video_recorder = VideoRecorder.create_h264(
                             fps=fps,
                             codec='h264',
@@ -84,12 +85,16 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 os.makedirs(save_dir)
             cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
             self.file_path = os.path.join(save_dir,  'test_' +cur_time +'.mp4')
-            print(f"Video will be saved to: {self.file_path}")
+            print(f"{self.render_obs_key} will be saved to: {self.file_path}")
         else:
             self.file_path = None
             self.video_recorder = None
 
         self.env_initialized = False
+
+    def set_bc_controller(self):
+        self.update_controllers(controller_name = "OSC_POSE", abs_action = self.lfd_abs_action)
+
 
     def initialize_env(self, env_name,  **kwargs):
         self.cur_env_name = env_name
@@ -136,6 +141,15 @@ class Robosuite_Evaluator(DMG_env_switchable):
         ## observation
         self.obs_shape_meta = cfg.task.shape_meta.obs
 
+        ## setup action type
+        self.action_dim = cfg.task.shape_meta.action.shape
+        if self.action_dim[0] > 14:
+            self.lfd_abs_action = True
+            self.rotation_transformer = RotationTransformer('axis_angle', 'rotation_6d')
+        else:
+            self.lfd_abs_action = False
+            self.rotation_transformer = None
+
         ## multi-step params for policy
         self.query_cycle = cfg.n_action_steps
         self.n_obs_steps = cfg.n_obs_steps
@@ -146,15 +160,14 @@ class Robosuite_Evaluator(DMG_env_switchable):
         if self.env_initialized:
             raise NotImplementedError("policy switching is not supported yet")
         
-        super().__init__(env_name, controller_name=controller_name, abs_action=False, H=height, W=width, cam_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"], **kwargs)
+        np.random.seed(int(time.time()))
+        super().__init__(env_name, controller_name=controller_name, abs_action=self.lfd_abs_action, H=height, W=width, cam_names=["agentview", "birdview", "frontview",  "robot0_eye_in_hand", "robot1_eye_in_hand"],max_timesteps = self.max_timesteps,  **kwargs)
         self.env_initialized = True
-        # self.env = DMG_env_switchable(env_name, controller_name = controller_name, abs_action = False, H = height, W= width, cam_names = ["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],)
+
         
 
-    def reset_ts(self, with_planning = False):
-        # if with_planning:
-        #     raise NotImplementedError("Planning is not implemented yet")
-        # else:
+    def reset_ts(self):
+
         self.raw_obs = self.env.reset()
         self.obs = self.get_observation(self.raw_obs)
         init_ts = ts_tuple(self.obs, 0, False, {})
@@ -167,7 +180,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
         return ts_tuple(self.obs, reward, done, info)
 
     def reset_all(self):
-        ts = self.reset_ts(with_planning=self.with_planning)
+        ts = self.reset_ts()
 
             
         ## obs history for extracting multi-step obs
@@ -187,7 +200,14 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 if not self.video_recorder.is_ready():
                     self.video_recorder.start(self.file_path)
 
-                img = np.moveaxis(obs['agentview_image'], 0, -1)
+                if isinstance(self.render_obs_key, list):
+                    img = []
+                    for cam_name in self.render_obs_key:
+                        cam_img = np.moveaxis(obs[cam_name], 0, -1)
+                        img.append(cam_img)
+                    img = np.concatenate(img, axis=1)
+                else:
+                    img = np.moveaxis(obs[self.render_obs_key], 0, -1)
                 frame = (img * 255).astype(np.uint8) 
                 
                 self.video_recorder.write_frame(frame)
@@ -287,27 +307,31 @@ class Robosuite_Evaluator(DMG_env_switchable):
 def wrapper_test():
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        # 'two_arm_three_piece_assembly': 'data/outputs/two_arm_assembly/latest.ckpt',
-        'two_arm_threading': 'data/outputs/two_arm_threading/latest.ckpt',
+        'two_arm_three_piece_assembly': \
+            #   'data/outputs/two_arm_assembly/latest.ckpt',
+            'data/outputs/two_arm_assembly/epoch=2200-test_mean_score=0.720.ckpt',
+        # 'two_arm_threading': \
+        # 'data/outputs/two_arm_threading/epoch=1350-test_mean_score=0.500.ckpt',
+            # 'data/outputs/two_arm_threading/latest.ckpt',
                        }
     env_names = list(checkpoint_dict.keys())
 
     max_timesteps = 500
     num_inference_steps = 10
 
-    env_runer = Robosuite_Evaluator(checkpoint_dict, output, max_timesteps, num_inference_steps)
+    env_runer = Robosuite_Evaluator(checkpoint_dict, output, max_timesteps, num_inference_steps, record= True)
     
     for skill in env_names:
         env_runer.initialize_env(skill, width = 168, height = 168)
         for i in range(max_timesteps):
             done = env_runer.inference_once()
-            task_success = env_runer.env.handle_rewards()
+            task_success = env_runer.handle_rewards()
             if task_success:
                 print('Task completed!')
                 break
             # dp.append_image()
 
-    env_runer.exit(output)
+    env_runer.exit()
 
 
 if __name__ == '__main__':

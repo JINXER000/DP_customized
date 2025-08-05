@@ -17,6 +17,8 @@ n_latency_steps: 0
 n_obs_steps: 2
 dataset_obs_steps: 2
 
+n_demo: 100
+
 name: train_diffusion_transformer_hybrid
 obs_as_cond: true
 
@@ -91,7 +93,6 @@ policy:
     num_train_timesteps: 100
     prediction_type: epsilon
     variance_type: fixed_small
-  num_inference_steps: 100
   obs_as_cond: true
   obs_encoder_group_norm: true
   p_drop_attn: 0.3
