@@ -29,7 +29,17 @@ from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
     array_to_stats
 )
+
+import networkx as nx
 register_codecs()
+
+def get_sg(hdf5_group, sg_name):
+    sg_json = hdf5_group[sg_name][()] if sg_name in hdf5_group else None
+    if sg_json is None:
+        return None
+    sg_str = sg_json.decode('utf-8')
+    sg = nx.node_link_graph(json.loads(sg_str))
+    return sg
 
 class RobomimicReplayImageDataset(BaseImageDataset):
     def __init__(self,
@@ -44,28 +54,33 @@ class RobomimicReplayImageDataset(BaseImageDataset):
             use_legacy_normalizer=False,
             use_cache=False,
             seed=42,
-            val_ratio=0.0
+            val_ratio=0.0,
+            n_demo=100,
+            only_biop = False,
         ):
+        self.n_demo = n_demo
         rotation_transformer = RotationTransformer(
             from_rep='axis_angle', to_rep=rotation_rep)
 
         replay_buffer = None
         if use_cache:
-            cache_zarr_path = dataset_path + '.zarr.zip'
+            cache_zarr_path = dataset_path + f'.{n_demo}.' + '.zarr.zip'
             cache_lock_path = cache_zarr_path + '.lock'
             print('Acquiring lock on cache.')
             with FileLock(cache_lock_path):
                 if not os.path.exists(cache_zarr_path):
                     # cache does not exists
                     try:
-                        print('Cache does not exist. Creating!')
+                        print(f'Cache {cache_zarr_path} does not exist. Creating!')
                         # store = zarr.DirectoryStore(cache_zarr_path)
                         replay_buffer = _convert_robomimic_to_replay(
                             store=zarr.MemoryStore(), 
                             shape_meta=shape_meta, 
                             dataset_path=dataset_path, 
                             abs_action=abs_action, 
-                            rotation_transformer=rotation_transformer)
+                            rotation_transformer=rotation_transformer,
+                            n_demo=n_demo, 
+                            only_biop=only_biop)
                         print('Saving cache to disk.')
                         with zarr.ZipStore(cache_zarr_path) as zip_store:
                             replay_buffer.save_to_store(
@@ -86,7 +101,9 @@ class RobomimicReplayImageDataset(BaseImageDataset):
                 shape_meta=shape_meta, 
                 dataset_path=dataset_path, 
                 abs_action=abs_action, 
-                rotation_transformer=rotation_transformer)
+                rotation_transformer=rotation_transformer,
+                n_demo=n_demo,
+                only_biop=only_biop)
 
         rgb_keys = list()
         lowdim_keys = list()
@@ -244,7 +261,7 @@ def _convert_actions(raw_actions, abs_action, rotation_transformer):
 
 
 def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, rotation_transformer, 
-        n_workers=None, max_inflight_tasks=None):
+        n_workers=None, max_inflight_tasks=None, n_demo=100, only_biop=False):
     if n_workers is None:
         n_workers = multiprocessing.cpu_count()
     if max_inflight_tasks is None:
@@ -271,15 +288,34 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
         # count total steps
         demos = file['data']
         episode_ends = list()
-        prev_end = 0
-        for i in range(len(demos)):
-            demo = demos[f'demo_{i}']
-            episode_length = demo['actions'].shape[0]
-            episode_end = prev_end + episode_length
-            prev_end = episode_end
-            episode_ends.append(episode_end)
-        n_steps = episode_ends[-1]
-        episode_starts = [0] + episode_ends[:-1]
+        if not only_biop:
+            prev_end = 0
+            for i in range(n_demo):
+                demo = demos[f'demo_{i}']
+                episode_length = demo['actions'].shape[0]
+                episode_end = prev_end + episode_length
+                prev_end = episode_end
+                episode_ends.append(episode_end)
+            n_steps = episode_ends[-1]
+            episode_starts = [0] + episode_ends[:-1]
+        else:
+            prev_end = 0
+            for i in range(n_demo):
+                sg_info = demos[f'demo_{i}/sg_info']
+                skill_info = None
+                for skill_key in sg_info:
+                    if 'bimanual' in skill_key:
+                        skill_info = sg_info[skill_key]
+                        break
+                if skill_info is None:
+                    print(f'Skill name not found in demo_{i}, skipping.')
+                    continue
+
+                pre_sg = get_sg(skill_info, 'pre_sg')
+                cur_sg = get_sg(skill_info, 'cur_sg')
+                biop_start = pre_sg.graph['idx_list'][0]
+                biop_end = cur_sg.graph['idx_list'][-1] 
+
         _ = meta_group.array('episode_ends', episode_ends, 
             dtype=np.int64, compressor=None, overwrite=True)
 
@@ -289,7 +325,7 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
             if key == 'action':
                 data_key = 'actions'
             this_data = list()
-            for i in range(len(demos)):
+            for i in range(n_demo):
                 demo = demos[f'demo_{i}']
                 this_data.append(demo[data_key][:].astype(np.float32))
             this_data = np.concatenate(this_data, axis=0)
@@ -336,7 +372,7 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
                         compressor=this_compressor,
                         dtype=np.uint8
                     )
-                    for episode_idx in range(len(demos)):
+                    for episode_idx in range(n_demo):
                         demo = demos[f'demo_{episode_idx}']
                         hdf5_arr = demo['obs'][key]
                         for hdf5_idx in range(hdf5_arr.shape[0]):

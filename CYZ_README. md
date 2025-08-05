@@ -41,3 +41,5 @@ There may be compatiblity issues during evaluation.  If issues are related to Mu
 pip install mujoco==3.3.2
 pip install PyOpenGL==3.1.7
 ```
+
+MUJOCO_EGL_DEVICE_ID=3 python train.py --config-name train_robomimic_image_transformer training.device=cuda:3 task=two_arm_threading_image
