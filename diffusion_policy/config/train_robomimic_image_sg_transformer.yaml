@@ -1,0 +1,124 @@
+
+defaults:
+  - _self_
+  - task: threading_image_sg
+
+task_name: ${task.name}
+shape_meta: ${task.shape_meta}
+exp_name: "default"
+
+horizon: &horizon 10
+# dataset_obs_steps: *horizon
+past_action_visible: False
+keypoint_visible_rate: 1.0
+
+n_action_steps: 8
+n_latency_steps: 0
+n_obs_steps: 2
+dataset_obs_steps: 2
+
+n_demo: 100
+
+name: train_diffusion_transformer_hybrid
+obs_as_cond: true
+
+_target_: diffusion_policy.workspace.train_diffusion_transformer_hybrid_workspace.TrainDiffusionTransformerHybridWorkspace
+checkpoint:
+  save_last_ckpt: true
+  save_last_snapshot: false
+  topk:
+    format_str: epoch={epoch:04d}-train_mean_score={train_mean_score:.3f}.ckpt
+    k: 3
+    mode: max
+    monitor_key: train_mean_score
+dataloader:
+  batch_size: 64
+  num_workers: 8
+  persistent_workers: false
+  pin_memory: true
+  shuffle: true
+ema:
+  _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
+  inv_gamma: 1.0
+  max_value: 0.9999
+  min_value: 0.0
+  power: 0.75
+  update_after_step: 0
+
+logging:
+  group: null
+  id: null
+  mode: online
+  name: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_can_image
+  project: diffusion_policy_debug
+  resume: true
+  tags:
+  - train_diffusion_transformer_hybrid
+  - can_image
+  - default
+
+multi_run:
+  run_dir: data/outputs/2023.01.04/04.00.54_train_diffusion_transformer_hybrid_can_image
+  wandb_name_base: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_can_image
+
+optimizer:
+  betas:
+  - 0.9
+  - 0.95
+  learning_rate: 0.0001
+  obs_encoder_weight_decay: 1.0e-06
+  transformer_weight_decay: 0.001
+
+policy:
+  _target_: diffusion_policy.policy.diffusion_transformer_hybrid_image_policy.DiffusionTransformerHybridImagePolicy
+  shape_meta: ${shape_meta}
+  causal_attn: true
+  crop_shape:
+  - 76
+  - 76
+  eval_fixed_crop: true
+  horizon: 10
+  n_action_steps: 8
+  n_cond_layers: 0
+  n_emb: 256
+  n_head: 4
+  n_layer: 8
+  n_obs_steps: 2
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    beta_start: 0.0001
+    clip_sample: true
+    num_train_timesteps: 100
+    prediction_type: epsilon
+    variance_type: fixed_small
+  obs_as_cond: true
+  obs_encoder_group_norm: true
+  p_drop_attn: 0.3
+  p_drop_emb: 0.0
+
+
+training:
+  checkpoint_every: 50
+  debug: false
+  device: cuda:0
+  gradient_accumulate_every: 1
+  lr_scheduler: cosine
+  lr_warmup_steps: 1000
+  max_train_steps: null
+  max_val_steps: null
+  num_epochs: 3500
+  resume: true
+  rollout_every: 50
+  sample_every: 5
+  seed: 42
+  tqdm_interval_sec: 1.0
+  use_ema: true
+  val_every: 1
+val_dataloader:
+  batch_size: 64
+  num_workers: 8
+  persistent_workers: false
+  pin_memory: true
+  shuffle: false

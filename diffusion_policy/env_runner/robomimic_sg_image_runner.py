@@ -18,70 +18,30 @@ from diffusion_policy.model.common.rotation_transformer import RotationTransform
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
-from diffusion_policy.env.dmg.dmg_image_wrapper_backup import DMGImageWrapper
-# import robomimic.utils.file_utils as FileUtils
-# import robomimic.utils.env_utils as EnvUtils
-# import robomimic.utils.obs_utils as ObsUtils
-import json 
+from diffusion_policy.env.robomimic.robomimic_image_wrapper import RobomimicImageWrapper
+import robomimic.utils.file_utils as FileUtils
+import robomimic.utils.env_utils as EnvUtils
+import robomimic.utils.obs_utils as ObsUtils
 
-import sys
-sys.path.append("/home/chenyizhou/imitation_learning/dexmimicgen")
-import dexmimicgen
-sys.path.append("/home/chenyizhou/imitation_learning/robosuite")
-import robosuite
+from diffusion_policy.common.misc import get_biop_start
 
-# def create_env(env_meta, shape_meta, enable_render=True):
-#     modality_mapping = collections.defaultdict(list)
-#     for key, attr in shape_meta['obs'].items():
-#         modality_mapping[attr.get('type', 'low_dim')].append(key)
-#     ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
-
-#     env = EnvUtils.create_env_from_metadata(
-#         env_meta=env_meta,
-#         render=False, 
-#         render_offscreen=enable_render,
-#         use_image_obs=enable_render, 
-#     )
-#     return env
 
 def create_env(env_meta, shape_meta, enable_render=True):
-    env_kwargs = env_meta["env_kwargs"]
-    env_kwargs["env_name"] = env_meta["env_name"]
-    env_kwargs["has_renderer"] = False
-    env_kwargs["renderer"] = "mjviewer"
-    env_kwargs["has_offscreen_renderer"] = False
-    env_kwargs["use_camera_obs"] = False
-    env_kwargs["controller_configs"] = env_meta["env_kwargs"]['controller_configs']
+    modality_mapping = collections.defaultdict(list)
+    for key, attr in shape_meta['obs'].items():
+        modality_mapping[attr.get('type', 'low_dim')].append(key)
+    ObsUtils.initialize_obs_modality_mapping_from_dict(modality_mapping)
 
-    if "env_lang" in env_kwargs:
-        env_kwargs.pop("env_lang")
-    env = robosuite.make(**env_kwargs)
+    env = EnvUtils.create_env_from_metadata(
+        env_meta=env_meta,
+        render=False, 
+        render_offscreen=enable_render,
+        use_image_obs=enable_render, 
+    )
     return env
 
-def get_env_metadata_from_dataset(dataset_path, ds_format="robomimic"):
-    """
-    Retrieves env metadata from dataset.
 
-    Args:
-        dataset_path (str): path to dataset
-
-    Returns:
-        env_meta (dict): environment metadata. Contains 3 keys:
-
-            :`'env_name'`: name of environment
-            :`'type'`: type of environment, should be a value in EB.EnvType
-            :`'env_kwargs'`: dictionary of keyword arguments to pass to environment constructor
-    """
-    dataset_path = os.path.expanduser(dataset_path)
-    f = h5py.File(dataset_path, "r")
-    if ds_format == "robomimic":
-        env_meta = json.loads(f["data"].attrs["env_args"])
-    else:
-        raise ValueError
-    f.close()
-    return env_meta
-
-class DMGImageRunner(BaseImageRunner):
+class RobomimicSGImageRunner(BaseImageRunner):
     """
     Robomimic envs already enforces number of steps.
     """
@@ -105,7 +65,7 @@ class DMGImageRunner(BaseImageRunner):
             past_action=False,
             abs_action=False,
             tqdm_interval_sec=5.0,
-            n_envs=None
+            n_envs=None, 
         ):
         super().__init__(output_dir)
 
@@ -118,11 +78,8 @@ class DMGImageRunner(BaseImageRunner):
         steps_per_render = max(robosuite_fps // fps, 1)
 
         # read from dataset
-        env_meta = get_env_metadata_from_dataset(
+        env_meta = FileUtils.get_env_metadata_from_dataset(
             dataset_path)
-
-
-
         # disable object state observation
         env_meta['env_kwargs']['use_object_obs'] = False
 
@@ -130,6 +87,8 @@ class DMGImageRunner(BaseImageRunner):
         if abs_action:
             env_meta['env_kwargs']['controller_configs']['control_delta'] = False
             rotation_transformer = RotationTransformer('axis_angle', 'rotation_6d')
+
+        env_meta['env_kwargs']['camera_names'] =  ['agentview', 'robot0_eye_in_hand', 'robot1_eye_in_hand']
 
         def env_fn():
             robomimic_env = create_env(
@@ -142,7 +101,7 @@ class DMGImageRunner(BaseImageRunner):
             robomimic_env.env.hard_reset = False
             return MultiStepWrapper(
                 VideoRecordingWrapper(
-                    DMGImageWrapper(
+                    RobomimicImageWrapper(
                         env=robomimic_env,
                         shape_meta=shape_meta,
                         init_state=None,
@@ -176,7 +135,7 @@ class DMGImageRunner(BaseImageRunner):
                 )
             return MultiStepWrapper(
                 VideoRecordingWrapper(
-                    DMGImageWrapper(
+                    RobomimicImageWrapper(
                         env=robomimic_env,
                         shape_meta=shape_meta,
                         init_state=None,
@@ -205,10 +164,15 @@ class DMGImageRunner(BaseImageRunner):
 
         # train
         with h5py.File(dataset_path, 'r') as f:
+            demos = f['data']
             for i in range(n_train):
                 train_idx = train_start_idx + i
                 enable_render = i < n_train_vis
-                init_state = f[f'data/demo_{train_idx}/states'][0]
+
+                sg_info = demos[f'demo_{i}/sg_info']
+                biop_start = get_biop_start(sg_info)
+
+                init_state = f[f'data/demo_{train_idx}/states'][biop_start]
 
                 def init_fn(env, init_state=init_state, 
                     enable_render=enable_render):
@@ -225,14 +189,15 @@ class DMGImageRunner(BaseImageRunner):
                         env.env.file_path = filename
 
                     # switch to init_state reset
-                    assert isinstance(env.env.env, DMGImageWrapper)
+                    assert isinstance(env.env.env, RobomimicImageWrapper)
                     env.env.env.init_state = init_state
 
                 env_seeds.append(train_idx)
                 env_prefixs.append('train/')
                 env_init_fn_dills.append(dill.dumps(init_fn))
         
-        # test
+        # test should always be 0 if only test the biop
+        assert n_test == 0
         for i in range(n_test):
             seed = test_start_seed + i
             enable_render = i < n_test_vis
@@ -252,7 +217,7 @@ class DMGImageRunner(BaseImageRunner):
                     env.env.file_path = filename
 
                 # switch to seed reset
-                assert isinstance(env.env.env, DMGImageWrapper)
+                assert isinstance(env.env.env, RobomimicImageWrapper)
                 env.env.env.init_state = None
                 env.seed(seed)
 

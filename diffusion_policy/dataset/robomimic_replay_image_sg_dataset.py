@@ -7,7 +7,6 @@ import zarr
 import os
 import shutil
 import copy
-import json
 import hashlib
 from filelock import FileLock
 from threadpoolctl import threadpool_limits
@@ -29,19 +28,13 @@ from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
     array_to_stats
 )
+from diffusion_policy.common.misc import get_biop_start
 
-import networkx as nx
 register_codecs()
 
-def get_sg(hdf5_group, sg_name):
-    sg_json = hdf5_group[sg_name][()] if sg_name in hdf5_group else None
-    if sg_json is None:
-        return None
-    sg_str = sg_json.decode('utf-8')
-    sg = nx.node_link_graph(json.loads(sg_str))
-    return sg
 
-class RobomimicReplayImageDataset(BaseImageDataset):
+
+class RobomimicReplayImageSgDataset(BaseImageDataset):
     def __init__(self,
             shape_meta: dict,
             dataset_path: str,
@@ -63,30 +56,30 @@ class RobomimicReplayImageDataset(BaseImageDataset):
 
         replay_buffer = None
         if use_cache:
-            cache_zarr_path = dataset_path + f'.{n_demo}.' + '.zarr.zip'
+            cache_zarr_path = dataset_path + f'.{n_demo}' + '.zarr.zip'
             cache_lock_path = cache_zarr_path + '.lock'
             print('Acquiring lock on cache.')
             with FileLock(cache_lock_path):
                 if not os.path.exists(cache_zarr_path):
                     # cache does not exists
-                    try:
-                        print(f'Cache {cache_zarr_path} does not exist. Creating!')
-                        # store = zarr.DirectoryStore(cache_zarr_path)
-                        replay_buffer = _convert_robomimic_to_replay(
-                            store=zarr.MemoryStore(), 
-                            shape_meta=shape_meta, 
-                            dataset_path=dataset_path, 
-                            abs_action=abs_action, 
-                            rotation_transformer=rotation_transformer,
-                            n_demo=n_demo)
-                        print('Saving cache to disk.')
-                        with zarr.ZipStore(cache_zarr_path) as zip_store:
-                            replay_buffer.save_to_store(
-                                store=zip_store
-                            )
-                    except Exception as e:
-                        shutil.rmtree(cache_zarr_path)
-                        raise e
+                    # try:
+                    print(f'Cache {cache_zarr_path} does not exist. Creating!')
+                    # store = zarr.DirectoryStore(cache_zarr_path)
+                    replay_buffer = _convert_robomimic_to_replay(
+                        store=zarr.MemoryStore(), 
+                        shape_meta=shape_meta, 
+                        dataset_path=dataset_path, 
+                        abs_action=abs_action, 
+                        rotation_transformer=rotation_transformer,
+                        n_demo=n_demo)
+                    print('Saving cache to disk.')
+                    with zarr.ZipStore(cache_zarr_path) as zip_store:
+                        replay_buffer.save_to_store(
+                            store=zip_store
+                        )
+                    # except Exception as e:
+                    #     shutil.rmtree(cache_zarr_path)
+                    #     raise e
                 else:
                     print('Loading cached ReplayBuffer from Disk.')
                     with zarr.ZipStore(cache_zarr_path, mode='r') as zip_store:
@@ -285,10 +278,18 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
         # count total steps
         demos = file['data']
         episode_ends = list()
+        real_starts = list()
+        real_ends = list()
         prev_end = 0
+        ## only for biop in dmg
         for i in range(n_demo):
+            sg_info = demos[f'demo_{i}/sg_info']
+            biop_start = get_biop_start(sg_info)
+            real_starts.append(biop_start)
             demo = demos[f'demo_{i}']
-            episode_length = demo['actions'].shape[0]
+            biop_end = demo['actions'].shape[0]
+            real_ends.append(biop_end)
+            episode_length = biop_end - biop_start
             episode_end = prev_end + episode_length
             prev_end = episode_end
             episode_ends.append(episode_end)
@@ -306,7 +307,7 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
             this_data = list()
             for i in range(n_demo):
                 demo = demos[f'demo_{i}']
-                this_data.append(demo[data_key][:].astype(np.float32))
+                this_data.append(demo[data_key][real_starts[i]:real_ends[i]].astype(np.float32))
             this_data = np.concatenate(this_data, axis=0)
             if key == 'action':
                 this_data = _convert_actions(
@@ -328,11 +329,39 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
         
         def img_copy(zarr_arr, zarr_idx, hdf5_arr, hdf5_idx):
             try:
-                zarr_arr[zarr_idx] = hdf5_arr[hdf5_idx]
-                # make sure we can successfully decode
-                _ = zarr_arr[zarr_idx]
+                # Validate indices
+                if zarr_idx < 0 or zarr_idx >= zarr_arr.shape[0]:
+                    print(f"Invalid zarr_idx: {zarr_idx}, array shape: {zarr_arr.shape}")
+                    return False
+                if hdf5_idx < 0 or hdf5_idx >= hdf5_arr.shape[0]:
+                    print(f"Invalid hdf5_idx: {hdf5_idx}, array shape: {hdf5_arr.shape}")
+                    return False
+                
+                # Get the image data
+                img_data = hdf5_arr[hdf5_idx]
+                
+                # Validate image data
+                if img_data is None or img_data.size == 0:
+                    print(f"Empty image data at hdf5_idx: {hdf5_idx}")
+                    return False
+                
+                # Check data type and shape
+                if not isinstance(img_data, np.ndarray):
+                    print(f"Image data is not numpy array at hdf5_idx: {hdf5_idx}, type: {type(img_data)}")
+                    return False
+                
+                # Copy the image
+                zarr_arr[zarr_idx] = img_data
+                
+                # Verify the copy was successful by reading it back
+                decoded_img = zarr_arr[zarr_idx]
+                if decoded_img is None or decoded_img.size == 0:
+                    print(f"Failed to decode image after copy at zarr_idx: {zarr_idx}")
+                    return False
+                    
                 return True
             except Exception as e:
+                print(f"Error in img_copy: zarr_idx={zarr_idx}, hdf5_idx={hdf5_idx}, error={str(e)}")
                 return False
         
         with tqdm(total=n_steps*len(rgb_keys), desc="Loading image data", mininterval=1.0) as pbar:
@@ -343,7 +372,7 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
                     data_key = 'obs/' + key
                     shape = tuple(shape_meta['obs'][key]['shape'])
                     c,h,w = shape
-                    this_compressor = Jpeg2k(level=50)
+                    this_compressor = Jpeg2k(level=50)  
                     img_arr = data_group.require_dataset(
                         name=key,
                         shape=(n_steps,h,w,c),
@@ -353,8 +382,9 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
                     )
                     for episode_idx in range(n_demo):
                         demo = demos[f'demo_{episode_idx}']
-                        hdf5_arr = demo['obs'][key]
-                        for hdf5_idx in range(hdf5_arr.shape[0]):
+                        hdf5_arr = demo['obs'][key]                            
+                        # for hdf5_idx in range(hdf5_arr.shape[0]):
+                        for hdf5_idx in range(real_starts[episode_idx], real_ends[episode_idx]):
                             if len(futures) >= max_inflight_tasks:
                                 # limit number of inflight tasks
                                 completed, futures = concurrent.futures.wait(futures, 
@@ -364,7 +394,8 @@ def _convert_robomimic_to_replay(store, shape_meta, dataset_path, abs_action, ro
                                         raise RuntimeError('Failed to encode image!')
                                 pbar.update(len(completed))
 
-                            zarr_idx = episode_starts[episode_idx] + hdf5_idx
+                            seg_id_in_zarr = hdf5_idx - real_starts[episode_idx]
+                            zarr_idx = episode_starts[episode_idx] + seg_id_in_zarr
                             futures.add(
                                 executor.submit(img_copy, 
                                     img_arr, zarr_idx, hdf5_arr, hdf5_idx))
