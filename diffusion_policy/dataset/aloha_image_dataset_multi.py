@@ -39,11 +39,11 @@ from diffusion_policy.env.aloha.constants import (
     GRIPPER_EPSILON, EE_VEL_EPSILONE, EE_DIST_BOUND
 )
 
-import modern_robotics as mr
+# import modern_robotics as mr
 import cv2
 
 register_codecs()
-import ipdb
+# import ipdb
 
 class AlohaImageDataset(BaseImageDataset):
     def __init__(
