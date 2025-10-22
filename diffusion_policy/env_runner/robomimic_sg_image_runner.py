@@ -169,7 +169,7 @@ class RobomimicSGImageRunner(BaseImageRunner):
                 train_idx = train_start_idx + i
                 enable_render = i < n_train_vis
 
-                sg_info = demos[f'demo_{i}/sg_info']
+                sg_info = demos[f'demo_{train_idx}/sg_info']
                 biop_start = get_biop_start(sg_info)
 
                 init_state = f[f'data/demo_{train_idx}/states'][biop_start]

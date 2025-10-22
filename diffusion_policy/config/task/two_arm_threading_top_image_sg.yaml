@@ -6,9 +6,6 @@ shape_meta: &shape_meta
     agentview_image:
       shape: [3, 128, 128]
       type: rgb
-    robot0_eye_in_hand_image:
-      shape: [3, 128, 128]
-      type: rgb
     robot0_eef_pos:
       shape: [3]
       # type default: low_dim
@@ -16,9 +13,6 @@ shape_meta: &shape_meta
       shape: [4]
     robot0_gripper_qpos:
       shape: [2]
-    robot1_eye_in_hand_image:
-      shape: [3, 128, 128]
-      type: rgb
     robot1_eef_pos:
       shape: [3]
       # type default: low_dim
@@ -39,7 +33,7 @@ env_runner:
   dataset_path: *dataset_path
   shape_meta: *shape_meta
   n_train: 50
-  n_train_vis: 6
+  n_train_vis: 5
   train_start_idx: 0
   n_test: 0
   n_test_vis: 0
@@ -68,6 +62,6 @@ dataset:
   abs_action: *abs_action
   rotation_rep: 'rotation_6d'
   use_legacy_normalizer: False
-  use_cache: True
+  use_cache: False
   seed: 42
   val_ratio: 0.02

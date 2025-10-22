@@ -17,6 +17,8 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 # allows arbitrary python code execution in configs using the ${eval:''} resolver
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
+import torch
+
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.joinpath(
@@ -26,6 +28,12 @@ def main(cfg: OmegaConf):
     # resolve immediately so all the ${now:} resolvers
     # will use the same time.
     OmegaConf.resolve(cfg)
+
+    DEVICE = cfg.training.device
+    # Set device for older PyTorch versions
+    if DEVICE.startswith('cuda'):
+        torch.cuda.set_device(DEVICE)
+    # For CPU, no device setting needed
 
     cls = hydra.utils.get_class(cfg._target_)
     workspace: BaseWorkspace = cls(cfg)

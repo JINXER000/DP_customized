@@ -28,7 +28,7 @@ checkpoint:
   save_last_snapshot: false
   topk:
     format_str: epoch={epoch:04d}-train_mean_score={train_mean_score:.3f}.ckpt
-    k: 3
+    k: 2
     mode: max
     monitor_key: train_mean_score
 dataloader:
@@ -49,17 +49,17 @@ logging:
   group: null
   id: null
   mode: online
-  name: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_can_image
+  name: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_dmg
   project: diffusion_policy_debug
   resume: true
   tags:
   - train_diffusion_transformer_hybrid
-  - can_image
+  - dmg
   - default
 
 multi_run:
-  run_dir: data/outputs/2023.01.04/04.00.54_train_diffusion_transformer_hybrid_can_image
-  wandb_name_base: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_can_image
+  run_dir: data/outputs/2023.01.04/04.00.54_train_diffusion_transformer_hybrid_dmg
+  wandb_name_base: 2023.01.04-04.00.54_train_diffusion_transformer_hybrid_dmg
 
 optimizer:
   betas:
