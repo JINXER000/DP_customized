@@ -27,15 +27,7 @@ from aloha.aloha_scripts.real_env import make_real_env
 from aloha.aloha_scripts.constants import DT
 from diffusion_policy.real_world.video_recorder import save_videos
 
-def collect_obs(obs_shape_meta, obs_history, t, obs):
-    for k, v in obs_shape_meta.items():
-        if v["type"] == "rgb":
-            obs_history[k][t] = np.moveaxis(
-                obs["images"][k].astype(np.float32) / 255.0, -1, 0
-            )
-        else:
-            obs_history[k][t] = obs[k].astype(np.float32)
-    return
+
 
 
 def get_seq_obs(obs_history, t, n_obs_steps):
@@ -62,6 +54,10 @@ class DP_Evaluator():
         self.image_list = []
         # setup experiment
         self.env = make_real_env(init_node=True, downsample_scale=scale, setup_robots= not self.with_planning)
+
+        ## set a default skill to get obs_shape_meta
+        skill_names = list(checkpoint_dict.keys())
+        self.set_skill(skill_names[0])
 
 
     def set_skill(self, skill_name, reset_grippers= True):
@@ -105,12 +101,7 @@ class DP_Evaluator():
             raise RuntimeError("Unsupported policy type: ", cfg.name)
         
         self.policy= policy
-        # hyper-parameters
-        ## observation
-        # state_dim = cfg.task.shape_meta.obs.qpos.shape[0] ## qpos shape
-        # camera_names = cfg.task.dataset.camera_names
         self.obs_shape_meta = cfg.task.shape_meta.obs
-        # c, h, w = self.obs_shape_meta.cam_high.shape ## [c, h, w]
 
         ## multi-step params for policy
         self.query_cycle = cfg.n_action_steps
@@ -125,22 +116,35 @@ class DP_Evaluator():
             self.env.puppet_bot_left.dxl.robot_reboot_motors("single", "gripper", True)
             self.env.puppet_bot_right.dxl.robot_reboot_motors("single", "gripper", True)
             
-        ## obs history for extracting multi-step obs
-        self.obs_history = dict()
-        for key in self.obs_shape_meta.keys():
-            self.obs_history[key] = np.zeros(
-                (self.max_timesteps, *self.obs_shape_meta[key].shape),
-                dtype=np.float32
-            )
+            ## obs history for extracting multi-step obs
+            self.obs_history = dict()
+            for key in self.obs_shape_meta.keys():
+                self.obs_history[key] = np.zeros(
+                    (self.max_timesteps, *self.obs_shape_meta[key].shape),
+                    dtype=np.float32
+                )
         self.t = 0
+
+    def collect_obs(self):
+        if self.t >= self.max_timesteps:
+            print('Reached max timesteps in collect_obs')
+            return
+        ## NOTE: we need to load a dp snapshort first to get obs_shape_meta
+        for k, v in self.obs_shape_meta.items():
+            if v["type"] == "rgb":
+                self.obs_history[k][self.t] = np.moveaxis(
+                    self.ts.observation["images"][k].astype(np.float32) / 255.0, -1, 0
+                )
+            else:
+                self.obs_history[k][self.t] = self.ts.observation[k].astype(np.float32)
+        return
 
     def inference(self):
         if self.t >= self.max_timesteps:
             return True
         with torch.inference_mode():
             # process previous ts
-            obs = self.ts.observation
-            collect_obs(self.obs_shape_meta, self.obs_history, self.t, obs)
+            self.collect_obs()
             obs_dict_np = get_seq_obs(self.obs_history, self.t, self.n_obs_steps)
             obs_dict = dict_apply(obs_dict_np, 
                 lambda x: torch.from_numpy(x).unsqueeze(0).to(self.device))
@@ -161,8 +165,6 @@ class DP_Evaluator():
 
     def append_image(self):
         cam_high_image = self.env.image_recorder.cam_high_image
-        # import cv2
-        # cam_high_image = cv2.resize(cam_high_image, (240, 320))
         self.image_list.append({'cam_high':cam_high_image})
 
     def exit(self, save_dir):
@@ -194,9 +196,9 @@ def wrapper_test():
 
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        # 'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/epoch=1425-train_loss=0.0001.ckpt', \
+        'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/epoch=1425-train_loss=0.0001.ckpt', \
         # 'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/latest.ckpt',\
-        'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/latest.ckpt'
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/epoch=1950-train_loss=0.0000.ckpt'
                        }
     skill_names = list(checkpoint_dict.keys())
 
@@ -206,7 +208,7 @@ def wrapper_test():
     # output = './data/eval/harrypotter/'
     # checkpoint = '/ssd1/chenyizhou/dp_ckpts/cup_random/latest.ckpt'
     # output = './data/eval/cup_random/'
-    max_timesteps = 500
+    max_timesteps = 800
     num_inference_steps = 10
     scale = 4
 
