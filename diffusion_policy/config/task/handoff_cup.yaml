@@ -54,6 +54,6 @@ dataset:
   seed: 42
   val_ratio: 0.2
   max_train_episodes: 
-  num_episodes: 50
+  num_episodes: 30
   camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
   task: *name
