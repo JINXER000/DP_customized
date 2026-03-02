@@ -124,7 +124,6 @@ python eval_aloha.py \
  -i ./data/outputs/2024.03.18/16.08.45_train_diffusion_unet_image_aloha_insert_10s_random_init/checkpoints/latest.ckpt \
  -o ./data/outputs/2024.03.18/16.08.45_train_diffusion_unet_image_aloha_insert_10s_random_init/
 
-<<<<<<< HEAD
  ## == demo == ##
 
 python eval_aloha.py \
@@ -169,32 +168,5 @@ python eval_aloha_hitl.py \
  -o /home/xuhang/Desktop/xh-codes/Diffusion-Policy/data/eval/hang_pants/ \
  -t 1000
 
-=======
-## aloha eval - consistency
-
- python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/checkpoints/epoch=1100-test_mean_score=3.400.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/epoch=1100-test_mean_score=3.400
- 
- python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/checkpoints/epoch=1800-test_mean_score=3.500.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/epoch=1800-test_mean_score=3.500
-
-  python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/checkpoints/epoch=2250-test_mean_score=3.600.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/epoch=2250-test_mean_score=3.600
-
-   python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/checkpoints/latest.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.38_train_consistency_unet_image_sim_insertion_scripted/latest
-
- ### aloha eval - diffusion
-
-python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.41_train_diffusion_unet_image_sim_insertion_scripted/checkpoints/epoch=0800-test_mean_score=3.700.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.41_train_diffusion_unet_image_sim_insertion_scripted/epoch=0800-test_mean_score=3.700
-
-python eval_aloha_sim.py \
- -c /home/xuhang/Diffusion-Policy/data/outputs/2024.05.14/19.06.41_train_diffusion_unet_image_sim_insertion_scripted/checkpoints/latest.ckpt \
- -o /home/xuhang/Diffusion-Policy/data/eval_results/2024.05.14/19.06.41_train_diffusion_unet_image_sim_insertion_scripted/latest
->>>>>>> a84f43d77246cff76a9dcc02b79dbb101f369682
+### train aloha cyberport with longer horizon
+ CUDA_VISIBLE_DEVICES=4 python train.py --config-name train_diffusion_unet_ddim_image_workspace_real task=aloha_transfer_tape    horizon=32 n_obs_steps=1 n_action_steps=25 

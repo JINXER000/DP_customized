@@ -60,9 +60,13 @@ class AlohaImageDataset(BaseImageDataset):
         n_obs_steps=None,
         max_train_episodes=None,
         use_cache=False,
-        task="sim_transfer_cube_scripted"
+        task="sim_transfer_cube_scripted",
+        allow_freeze: bool = False,
     ):
         super().__init__()
+
+        # Whether to append per-timestep freeze flags as extra action dims.
+        self.allow_freeze = allow_freeze
 
         ## read .hdf5 files and save to replay buffer
         replay_buffer = None
@@ -165,6 +169,19 @@ class AlohaImageDataset(BaseImageDataset):
                 qpos = root["/observations/qpos"][()]
                 qvel = root["/observations/qvel"][()]
                 action = root["/action"][()]
+
+                # Optionally append per-timestep freeze indicators as extra action dimensions.
+                if self.allow_freeze and "left_frozen" in root and "right_frozen" in root:
+                    left_frozen = root["left_frozen"][()].astype(np.float32)
+                    right_frozen = root["right_frozen"][()].astype(np.float32)
+                    freeze = np.stack([left_frozen, right_frozen], axis=-1).astype(
+                        np.float32
+                    )
+                    # Expect same temporal length; if not, truncate to the shortest.
+                    T = min(action.shape[0], freeze.shape[0])
+                    action = np.concatenate([action[:T], freeze[:T]], axis=-1)
+                    qpos = qpos[:T]
+                    qvel = qvel[:T]
 
                 # stack different cameras
                 all_cam_images = dict()

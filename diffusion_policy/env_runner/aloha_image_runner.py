@@ -46,6 +46,7 @@ class AlohaImageRunner(BaseImageRunner):
         tqdm_interval_sec=5.0,
         n_envs=None,
         multiplier=1,
+        allow_freeze: bool = False,
     ):
         super().__init__(output_dir)
         if n_envs is None:
@@ -182,6 +183,7 @@ class AlohaImageRunner(BaseImageRunner):
         self.max_steps = max_steps
         self.tqdm_interval_sec = tqdm_interval_sec
         self.task_name = task_name
+        self.allow_freeze = allow_freeze
 
     def run(self, policy: BaseImagePolicy):
         device = policy.device
@@ -256,6 +258,20 @@ class AlohaImageRunner(BaseImageRunner):
                 )
 
                 action = np_action_dict["action"]
+
+                # If freeze channels are enabled, split them out and keep only the
+                # joint action dimensions for the simulator. The freeze signals can
+                # be used by an external controller for real-robot execution.
+                if self.allow_freeze and action.shape[-1] >= 16:
+                    freeze = action[..., 14:16]
+                    # Clamp to [0, 1] and threshold to obtain boolean indicators.
+                    freeze = np.clip(freeze, 0.0, 1.0)
+                    freeze_bool = freeze > 0.5
+                    # Optionally expose freeze predictions via action dict for logging.
+                    np_action_dict["freeze"] = freeze
+                    np_action_dict["freeze_bool"] = freeze_bool
+                    # Simulator only receives the original 14 joint/gripper dims.
+                    action = action[..., :14]
 
                 # step env
                 obs, reward, done, info = env.step(action)
