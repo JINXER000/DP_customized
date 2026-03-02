@@ -22,9 +22,9 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
-from aloha.aloha_scripts.real_env import make_real_env
+from aloha_pkg.aloha_scripts.real_env import make_real_env
 
-from aloha.aloha_scripts.constants import DT
+from aloha_pkg.aloha_scripts.constants import DT
 from diffusion_policy.real_world.video_recorder import save_videos
 
 
@@ -54,6 +54,10 @@ class DP_Evaluator():
         self.image_list = []
         # setup experiment
         self.env = make_real_env(init_node=True, downsample_scale=scale, setup_robots= not self.with_planning)
+
+        # Freeze-control related state (optional, per-skill).
+        self.allow_freeze = False
+        self.last_action = None
 
         ## set a default skill to get obs_shape_meta
         skill_names = list(checkpoint_dict.keys())
@@ -107,6 +111,15 @@ class DP_Evaluator():
         self.query_cycle = cfg.n_action_steps
         self.n_obs_steps = cfg.n_obs_steps
 
+        # Whether this skill uses extra freeze channels in the action (14 + 2).
+        self.allow_freeze = False
+        task_cfg = getattr(cfg, "task", None)
+        if task_cfg is not None:
+            dataset_cfg = getattr(task_cfg, "dataset", None)
+            # OmegaConf containers support key access like a dict.
+            if dataset_cfg is not None and "allow_freeze" in dataset_cfg:
+                self.allow_freeze = bool(dataset_cfg["allow_freeze"])
+
     def reset_all(self, reset_grippers = True):
         self.ts = self.env.reset(fake=self.with_planning)
         # inference_time_list = []
@@ -124,6 +137,8 @@ class DP_Evaluator():
                     dtype=np.float32
                 )
         self.t = 0
+        # Reset last applied action used for freeze control.
+        self.last_action = None
 
     def collect_obs(self):
         if self.t >= self.max_timesteps:
@@ -149,16 +164,42 @@ class DP_Evaluator():
             obs_dict = dict_apply(obs_dict_np, 
                 lambda x: torch.from_numpy(x).unsqueeze(0).to(self.device))
 
-            # query policy to extract action: (B=1, Da)
+            # query policy to extract action sequence: (B=1, T, Da)
             # t0 = time.perf_counter()
             if self.t % self.query_cycle == 0:
                 action_dict = self.policy.predict_action(obs_dict)
-                self.np_action_seq = action_dict['action'][0].detach().to('cpu').numpy() # T,Da
-            action = self.np_action_seq[self.t % self.query_cycle]
-            # t1 = time.perf_counter()
+                self.np_action_seq = (
+                    action_dict["action"][0].detach().to("cpu").numpy()
+                )  # [T, Da]
 
-            # step env
-            self.ts = self.env.step(action)
+            full_action = self.np_action_seq[self.t % self.query_cycle]
+
+            # Always keep the real env interface at 14D (joint + gripper).
+            if full_action.shape[-1] > 14:
+                base_action = full_action[:14].copy()
+            else:
+                base_action = full_action.copy()
+
+            # Optionally apply per-arm freeze using the last 2 dims (left/right).
+            if self.allow_freeze and full_action.shape[-1] >= 16:
+                freeze = np.clip(full_action[14:16], 0.0, 1.0)
+                left_freeze = freeze[0] > 0.5
+                right_freeze = freeze[1] > 0.5
+
+                left_slice = slice(0, 7)
+                right_slice = slice(7, 14)
+
+                if self.last_action is not None:
+                    if left_freeze:
+                        base_action[left_slice] = self.last_action[left_slice]
+                    if right_freeze:
+                        base_action[right_slice] = self.last_action[right_slice]
+
+            # step env with 14D action
+            self.ts = self.env.step(base_action)
+
+            # cache last applied 14D action for future freeze
+            self.last_action = base_action.copy()
 
             self.t += 1
         return False
@@ -196,18 +237,14 @@ def wrapper_test():
 
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/epoch=1425-train_loss=0.0001.ckpt', \
-        # 'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/latest.ckpt',\
-        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/epoch=1950-train_loss=0.0000.ckpt'
+        # 'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/epoch=1975-train_loss=0.0000.ckpt', \
+        'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/epoch=1900-train_loss=0.0001.ckpt',\
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/20demos/latest.ckpt',\
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/long_chunk/epoch=1900-train_loss=0.0002.ckpt'
+
                        }
     skill_names = list(checkpoint_dict.keys())
 
-    # checkpoint = '/ssd1/yudongjie/DP-HITL/data/outputs/2024.10.30/13.08.16_train_diffusion_transformer_image_screwdriver/checkpoints/latest.ckpt'
-    # output = './data/eval/screwdriver/'
-    # checkpoint = '/ssd1/chenyizhou/dp_ckpts/harrypotter/latest.ckpt'
-    # output = './data/eval/harrypotter/'
-    # checkpoint = '/ssd1/chenyizhou/dp_ckpts/cup_random/latest.ckpt'
-    # output = './data/eval/cup_random/'
     max_timesteps = 800
     num_inference_steps = 10
     scale = 4
