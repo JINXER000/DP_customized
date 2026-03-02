@@ -28,10 +28,10 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.real_world.video_recorder import save_videos
 from diffusion_policy.common.hitl_recorder import HitlRecorder
 
-from aloha.aloha_scripts.robot_utils import move_grippers, move_arms, torque_on, torque_off
-from aloha.aloha_scripts.robot_utils import get_arm_gripper_positions, get_arm_joint_positions
-from aloha.aloha_scripts.real_env import make_real_env, get_action
-from aloha.aloha_scripts.constants import DT, PUPPET_GRIPPER_JOINT_NORMALIZE_FN, MASTER_GRIPPER_JOINT_UNNORMALIZE_FN
+from aloha_pkg.aloha_scripts.robot_utils import move_grippers, move_arms, torque_on, torque_off
+from aloha_pkg.aloha_scripts.robot_utils import get_arm_gripper_positions, get_arm_joint_positions
+from aloha_pkg.aloha_scripts.real_env import make_real_env, get_action
+from aloha_pkg.aloha_scripts.constants import DT, PUPPET_GRIPPER_JOINT_NORMALIZE_FN, MASTER_GRIPPER_JOINT_UNNORMALIZE_FN
 
 from interbotix_xs_modules.arm import InterbotixManipulatorXS
 

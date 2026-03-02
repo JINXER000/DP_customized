@@ -28,7 +28,7 @@ def main(task, num_episodes, scale, data_dir):
     dataset_dir = os.path.join(data_dir, task, "original")
     dataset_dir = str(pathlib.Path(dataset_dir).expanduser())
 
-    output_dir = proj_dir / f"data/aloha/datasets/{task}/"
+    # output_dir = proj_dir / f"data/aloha/datasets/{task}/"
     output_dir = os.path.join(data_dir, task)
     output_dir = str(pathlib.Path(output_dir).expanduser())
 
@@ -43,7 +43,10 @@ def main(task, num_episodes, scale, data_dir):
             with h5py.File(dataset_path, "r") as src:
                 with h5py.File(output_path, "w", rdcc_nbytes=1024**2*2) as dst:
                     ### step 1: action, direct copy
-                    src.copy(src["action"], dst, "action")
+                    # src.copy(src["action"], dst, "action")
+                    for key in src.keys():
+                        if key != "observations":
+                            src.copy(src[key], dst, key)
 
                     ### step 2: non-images observations
                     obs = dst.create_group("observations")

@@ -1,9 +1,9 @@
 import os
 import h5py
-from aloha.aloha_scripts.robot_utils import move_grippers
+from aloha_pkg.aloha_scripts.robot_utils import move_grippers
 import argparse
-from aloha.aloha_scripts.real_env import make_real_env
-from aloha.aloha_scripts.constants import JOINT_NAMES, PUPPET_GRIPPER_JOINT_OPEN
+from aloha_pkg.aloha_scripts.real_env import make_real_env
+from aloha_pkg.aloha_scripts.constants import JOINT_NAMES, PUPPET_GRIPPER_JOINT_OPEN
 
 import IPython
 e = IPython.embed

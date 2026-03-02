@@ -5,11 +5,11 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 
-from aloha.aloha_scripts.constants import DT, START_ARM_POSE, TASK_CONFIGS
-from aloha.aloha_scripts.constants import MASTER_GRIPPER_JOINT_MID, PUPPET_GRIPPER_JOINT_CLOSE, PUPPET_GRIPPER_JOINT_OPEN
-from aloha.aloha_scripts.robot_utils import Recorder, ImageRecorder, get_arm_gripper_positions
-from aloha.aloha_scripts.robot_utils import move_arms, torque_on, torque_off, move_grippers
-from aloha.aloha_scripts.real_env import make_real_env, get_action
+from aloha_pkg.aloha_scripts.constants import DT, START_ARM_POSE, TASK_CONFIGS
+from aloha_pkg.aloha_scripts.constants import MASTER_GRIPPER_JOINT_MID, PUPPET_GRIPPER_JOINT_CLOSE, PUPPET_GRIPPER_JOINT_OPEN
+from aloha_pkg.aloha_scripts.robot_utils import Recorder, ImageRecorder, get_arm_gripper_positions
+from aloha_pkg.aloha_scripts.robot_utils import move_arms, torque_on, torque_off, move_grippers
+from aloha_pkg.aloha_scripts.real_env import make_real_env, get_action
 
 from interbotix_xs_modules.arm import InterbotixManipulatorXS
 

@@ -22,9 +22,9 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
-from aloha.aloha_scripts.real_env import make_real_env
+from aloha_pkg.aloha_scripts.real_env import make_real_env
 
-from aloha.aloha_scripts.constants import DT
+from aloha_pkg.aloha_scripts.constants import DT
 from diffusion_policy.real_world.video_recorder import save_videos
 
 
@@ -196,18 +196,14 @@ def wrapper_test():
 
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/epoch=1425-train_loss=0.0001.ckpt', \
-        # 'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/latest.ckpt',\
-        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/epoch=1950-train_loss=0.0000.ckpt'
+        # 'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/epoch=1975-train_loss=0.0000.ckpt', \
+        'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/epoch=1900-train_loss=0.0001.ckpt',\
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/20demos/latest.ckpt',\
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/long_chunk/epoch=1900-train_loss=0.0002.ckpt'
+
                        }
     skill_names = list(checkpoint_dict.keys())
 
-    # checkpoint = '/ssd1/yudongjie/DP-HITL/data/outputs/2024.10.30/13.08.16_train_diffusion_transformer_image_screwdriver/checkpoints/latest.ckpt'
-    # output = './data/eval/screwdriver/'
-    # checkpoint = '/ssd1/chenyizhou/dp_ckpts/harrypotter/latest.ckpt'
-    # output = './data/eval/harrypotter/'
-    # checkpoint = '/ssd1/chenyizhou/dp_ckpts/cup_random/latest.ckpt'
-    # output = './data/eval/cup_random/'
     max_timesteps = 800
     num_inference_steps = 10
     scale = 4

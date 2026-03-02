@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 import dm_env
 import cv2
 
-from aloha.aloha_scripts.constants import DT, START_ARM_POSE, MASTER_GRIPPER_JOINT_NORMALIZE_FN, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN
-from aloha.aloha_scripts.constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
-from aloha.aloha_scripts.constants import PUPPET_GRIPPER_JOINT_OPEN, PUPPET_GRIPPER_JOINT_CLOSE
-from aloha.aloha_scripts.robot_utils import Recorder, ImageRecorder
-from aloha.aloha_scripts.robot_utils import setup_master_bot, setup_puppet_bot, move_arms, move_grippers
+from aloha_pkg.aloha_scripts.constants import DT, START_ARM_POSE, MASTER_GRIPPER_JOINT_NORMALIZE_FN, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN
+from aloha_pkg.aloha_scripts.constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
+from aloha_pkg.aloha_scripts.constants import PUPPET_GRIPPER_JOINT_OPEN, PUPPET_GRIPPER_JOINT_CLOSE
+from aloha_pkg.aloha_scripts.robot_utils import Recorder, ImageRecorder
+from aloha_pkg.aloha_scripts.robot_utils import setup_master_bot, setup_puppet_bot, move_arms, move_grippers
 from interbotix_xs_modules.arm import InterbotixManipulatorXS
 from interbotix_xs_msgs.msg import JointSingleCommand
 

@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 import click
@@ -23,8 +24,8 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.common.cv2_util import get_image_transform
 
-from aloha.aloha_scripts.robot_utils import move_grippers
-from aloha.aloha_scripts.real_env import make_real_env
+from aloha_pkg.aloha_scripts.robot_utils import move_grippers
+from aloha_pkg.aloha_scripts.real_env import make_real_env
 
 import ipdb
 
@@ -123,14 +124,15 @@ def main(input,
     num_rollouts = 1
     episode_returns = []
     highest_rewards = []
+    video_recorder = VideoRecorder()  # Initialize video recorder
 
     for rollout_idx in range(num_rollouts):
         rollout_idx += 1
-        
+
         print(f"Rollout {rollout_idx} - Collecting observations...")
 
         ## reset env
-        ts = env.reset() 
+        ts = env.reset()
         t_idx = n_obs_steps
 
         qpos_history = np.zeros(
@@ -154,23 +156,24 @@ def main(input,
                 for cam_name in camera_names:
                     obs_dict_np[cam_name] = images_history[cam_name][t_idx-n_obs_steps:t_idx] ## [n_obs_steps, c, h, w]
 
-                print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
+                # print(f"observation_range = {t_idx-n_obs_steps}:{t_idx}")
 
                 ''' get action sequence '''
                 t0 = time.perf_counter()
-                obs_dict = dict_apply(obs_dict_np, 
+                obs_dict = dict_apply(obs_dict_np,
                     lambda x: torch.from_numpy(x).unsqueeze(0).to(device))
                 result = policy.predict_action(obs_dict)
                 t1 = time.perf_counter()
-                print(f"Execution Policy: {t1 - t0:.4f} [s]")
+                # print(f"Execution Policy: {t1 - t0:.4f} [s]")
                 step_time_list.append(t1 - t0)
                 # ipdb.set_trace()
 
                 action_seq = result['action'][0].detach().to('cpu').numpy()
-                
+
                 ''' implement action sequence '''
                 for action in action_seq:
                     ts = env.step(action)
+                    video_recorder.append_image(env)  # Collect image for video
 
                     qpos_history, images_history = collect_obs(ts, t_idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta)
 
@@ -178,7 +181,7 @@ def main(input,
                     if t_idx == max_timesteps+n_obs_steps:
                         # ipdb.set_trace()
                         break
-                
+
                 if t_idx >= max_timesteps+n_obs_steps:
                     break
 
@@ -189,8 +192,8 @@ def main(input,
     print(f"Average step time: {np.mean(step_time_list[1:]):.4f} +/- {np.std(step_time_list[1:]):.4f} s")
     print(f"Total time: {ep_t1 - ep_t0:.4f} s")
 
-    #     ## statistics
-    #     save_videos(image_list, DT, video_path=os.path.join(ckpt_dir, f'video{rollout_id}.mp4'))
+    # Save video
+    video_recorder.save_video(output)
                         
 
 def collect_obs(ts, idx, n_obs_steps, qpos_history, images_history, camera_names, shape_meta):
@@ -233,40 +236,43 @@ def get_image(ts, camera_names, shape_meta):
 
 
 
-def save_videos(video, dt, video_path=None):
-    if isinstance(video, list):
-        cam_names = list(video[0].keys())
-        h, w, _ = video[0][cam_names[0]].shape
-        w = w * len(cam_names)
-        fps = int(1/dt)
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-        for ts, image_dict in enumerate(video):
-            images = []
-            for cam_name in cam_names:
-                image = image_dict[cam_name]
-                image = image[:, :, [2, 1, 0]] # swap B and R channel
-                images.append(image)
-            images = np.concatenate(images, axis=1)
-            out.write(images)
-        out.release()
-        print(f'Saved video to: {video_path}')
-    elif isinstance(video, dict):
-        cam_names = list(video.keys())
-        all_cam_videos = []
-        for cam_name in cam_names:
-            all_cam_videos.append(video[cam_name])
-        all_cam_videos = np.concatenate(all_cam_videos, axis=2) # width dimension
 
-        n_frames, h, w, _ = all_cam_videos.shape
-        fps = int(1 / dt)
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-        for t in range(n_frames):
-            image = all_cam_videos[t]
-            image = image[:, :, [2, 1, 0]]  # swap B and R channel
-            out.write(image)
-        out.release()
-        print(f'Saved video to: {video_path}')
 
+
+class VideoRecorder:
+    def __init__(self):
+        self.image_list = []
+        self.video_writer = None
+
+    def append_image(self, env):
+        cam_high_image = env.image_recorder.cam_high_image
+        self.image_list.append({'cam_high': cam_high_image})
+
+    def save_video(self, save_dir):
+        if not self.image_list:
+            print("No images to save")
+            return
+
+        import cv2
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
+        vid_save_path = os.path.join(save_dir, 'test_' + cur_time + '.avi')
+
+        height, width, _ = self.image_list[0]['cam_high'].shape
+        fps = 30  # Adjust based on your camera settings
+        self.video_writer = cv2.VideoWriter(
+            vid_save_path,
+            cv2.VideoWriter_fourcc(*'XVID'),
+            fps,
+            (width, height)
+        )
+        for image in self.image_list:
+            rgb_image = cv2.cvtColor(image['cam_high'], cv2.COLOR_BGR2RGB)
+            # transpose image width and height
+            self.video_writer.write(rgb_image)
+        self.video_writer.release()
+        print(f"Saved video to {vid_save_path}")
 
 
 if __name__ == '__main__':
