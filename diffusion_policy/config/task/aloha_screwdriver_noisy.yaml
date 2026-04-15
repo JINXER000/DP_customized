@@ -10,9 +10,9 @@ shape_meta: &shape_meta
     cam_high:
       shape: *image_shape
       type: rgb
-    cam_low:
-      shape: *image_shape
-      type: rgb
+    # cam_low:
+    #   shape: *image_shape
+    #   type: rgb
     cam_left_wrist:
       shape: *image_shape
       type: rgb
@@ -55,5 +55,6 @@ dataset:
   val_ratio: 0.2
   max_train_episodes: null
   num_episodes: 20
-  camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+  # camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+  camera_names: ["cam_high", "cam_left_wrist", "cam_right_wrist"]
   task: *name

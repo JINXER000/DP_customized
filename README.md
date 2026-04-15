@@ -435,3 +435,18 @@ This repository is released under the MIT license. See [LICENSE](LICENSE) for ad
 * The [Block Pushing](./diffusion_policy/env/block_pushing) task is adapted from [BET](https://github.com/notmahi/bet) and [IBC](https://github.com/google-research/ibc).
 * The [Kitchen](./diffusion_policy/env/kitchen) task is adapted from [BET](https://github.com/notmahi/bet) and [Relay Policy Learning](https://github.com/google-research/relay-policy-learning).
 * Our [shared_memory](./diffusion_policy/shared_memory) data structures are heavily inspired by [shared-ndarray2](https://gitlab.com/osu-nrsg/shared-ndarray2).
+
+# CYZ_deployment_instructions
+## resize the dataset to make training faster
+```
+python diffusion_policy/scripts/aloha_dataset_resize.py --task two_cup_pour --num_episodes 11 --scale 4 --data_dir  /ssd1/aloha_data/
+
+```
+## add the config
+you can follow the exaple in diffusion_policy/config/task/handoff_cup.yaml. remember to revise the included cameras in 'obs' and 'camera_names'
+## trainning
+ CUDA_VISIBLE_DEVICES=3 python train.py --config-name train_diffusion_unet_ddim_image_workspace_real task=two_arm_pour horizon=32 n_obs_steps=2 n_action_steps=25 
+## inference
+```
+python eval_aloha.py -i /ssd1/chenyizhou/dp_ckpts/handoff_cup/epoch=1425-train_loss=0.0001.ckpt -o /ssd1/chenyizhou/dp_ckpts/handoff_cup
+```
