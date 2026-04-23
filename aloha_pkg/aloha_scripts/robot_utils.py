@@ -7,30 +7,24 @@ import IPython
 e = IPython.embed
 
 class ImageRecorder:
-    def __init__(self, init_node=True, is_debug=False):
+    def __init__(self, init_node=True, is_debug=False, camera_names=None):
         from collections import deque
         import rospy
         from cv_bridge import CvBridge
         from sensor_msgs.msg import Image
         self.is_debug = is_debug
         self.bridge = CvBridge()
-        self.camera_names = ['cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist']
+        if camera_names is None:
+            self.camera_names = ['cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist']
+        else:
+            self.camera_names = list(camera_names)
         if init_node:
             rospy.init_node('image_recorder', anonymous=True)
         for cam_name in self.camera_names:
             setattr(self, f'{cam_name}_image', None)
             setattr(self, f'{cam_name}_secs', None)
             setattr(self, f'{cam_name}_nsecs', None)
-            if cam_name == 'cam_high':
-                callback_func = self.image_cb_cam_high
-            elif cam_name == 'cam_low':
-                callback_func = self.image_cb_cam_low
-            elif cam_name == 'cam_left_wrist':
-                callback_func = self.image_cb_cam_left_wrist
-            elif cam_name == 'cam_right_wrist':
-                callback_func = self.image_cb_cam_right_wrist
-            else:
-                raise NotImplementedError
+            callback_func = lambda data, cam_name=cam_name: self.image_cb(cam_name, data)
             rospy.Subscriber(f"/usb_{cam_name}/image_raw", Image, callback_func)
             if self.is_debug:
                 setattr(self, f'{cam_name}_timestamps', deque(maxlen=50))
@@ -43,22 +37,6 @@ class ImageRecorder:
         # cv2.imwrite('/home/tonyzhao/Desktop/sample.jpg', cv_image)
         if self.is_debug:
             getattr(self, f'{cam_name}_timestamps').append(data.header.stamp.secs + data.header.stamp.secs * 1e-9)
-
-    def image_cb_cam_high(self, data):
-        cam_name = 'cam_high'
-        return self.image_cb(cam_name, data)
-
-    def image_cb_cam_low(self, data):
-        cam_name = 'cam_low'
-        return self.image_cb(cam_name, data)
-
-    def image_cb_cam_left_wrist(self, data):
-        cam_name = 'cam_left_wrist'
-        return self.image_cb(cam_name, data)
-
-    def image_cb_cam_right_wrist(self, data):
-        cam_name = 'cam_right_wrist'
-        return self.image_cb(cam_name, data)
 
     def get_images(self):
         image_dict = dict()

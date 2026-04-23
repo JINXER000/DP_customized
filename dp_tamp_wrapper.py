@@ -52,16 +52,40 @@ class DP_Evaluator():
         # self.cur_skill = skill_names[0]
         self.with_planning = with_planning  
         self.image_list = []
+        self.camera_names = self._resolve_camera_names()
+        if 'cam_high' not in self.camera_names:
+            raise ValueError("DP_Evaluator requires 'cam_high' in camera_names for video recording.")
         # setup experiment
-        self.env = make_real_env(init_node=True, downsample_scale=scale, setup_robots= not self.with_planning)
+        self.env = make_real_env(
+            init_node=True,
+            downsample_scale=scale,
+            setup_robots=not self.with_planning,
+            camera_names=self.camera_names,
+        )
 
         # Freeze-control related state (optional, per-skill).
         self.allow_freeze = False
         self.last_action = None
+        # Text overlay for video frames (e.g., freeze indicators).
+        self.overlay_text = None
 
         ## set a default skill to get obs_shape_meta
         skill_names = list(checkpoint_dict.keys())
         self.set_skill(skill_names[0])
+
+    def _resolve_camera_names(self):
+        default_camera_names = ['cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist']
+        skill_names = list(self.checkpoint_dict.keys())
+        if len(skill_names) == 0:
+            return default_camera_names
+
+        first_ckpt = self.checkpoint_dict[skill_names[0]]
+        payload = torch.load(open(first_ckpt, 'rb'), pickle_module=dill)
+        cfg = payload['cfg']
+
+        if hasattr(cfg, "task") and hasattr(cfg.task, "dataset") and hasattr(cfg.task.dataset, "camera_names"):
+            return list(cfg.task.dataset.camera_names)
+        return default_camera_names
 
 
     def set_skill(self, skill_name, reset_grippers= True):
@@ -89,20 +113,20 @@ class DP_Evaluator():
         workspace.load_payload(payload, exclude_keys=["optimizer"], include_keys=None)
 
         # get policy from workspace
-        if 'diffusion' in cfg.name:
-            ## diffusion model
-            policy: BaseImagePolicy
-            policy = workspace.model
-            if cfg.training.use_ema:
-                policy = workspace.ema_model
+        # if 'diffusion' in cfg.name:
+        ## diffusion model
+        policy: BaseImagePolicy
+        policy = workspace.model
+        if cfg.training.use_ema:
+            policy = workspace.ema_model
 
-            self.device = torch.device('cuda')
-            policy.eval().to(self.device)
+        self.device = torch.device('cuda')
+        policy.eval().to(self.device)
 
-            ## set inference params
-            policy.num_inference_steps = self.num_inference_steps #16 # [DDIM inference iterations]
-        else:
-            raise RuntimeError("Unsupported policy type: ", cfg.name)
+        ## set inference params
+        policy.num_inference_steps = self.num_inference_steps #16 # [DDIM inference iterations]
+        # else:
+        #     raise RuntimeError("Unsupported policy type: ", cfg.name)
         
         self.policy= policy
         self.obs_shape_meta = cfg.task.shape_meta.obs
@@ -113,12 +137,12 @@ class DP_Evaluator():
 
         # Whether this skill uses extra freeze channels in the action (14 + 2).
         self.allow_freeze = False
-        task_cfg = getattr(cfg, "task", None)
-        if task_cfg is not None:
-            dataset_cfg = getattr(task_cfg, "dataset", None)
-            # OmegaConf containers support key access like a dict.
-            if dataset_cfg is not None and "allow_freeze" in dataset_cfg:
-                self.allow_freeze = bool(dataset_cfg["allow_freeze"])
+        # task_cfg = getattr(cfg, "task", None)
+        # if task_cfg is not None:
+        #     dataset_cfg = getattr(task_cfg, "dataset", None)
+        #     # OmegaConf containers support key access like a dict.
+        #     if dataset_cfg is not None and "allow_freeze" in dataset_cfg:
+        #         self.allow_freeze = bool(dataset_cfg["allow_freeze"])
 
     def reset_all(self, reset_grippers = True):
         self.ts = self.env.reset(fake=self.with_planning)
@@ -182,18 +206,31 @@ class DP_Evaluator():
 
             # Optionally apply per-arm freeze using the last 2 dims (left/right).
             if self.allow_freeze and full_action.shape[-1] >= 16:
+                # Treat the last two dimensions as continuous freeze strengths alpha in [0, 1]
+                # and blend between the current DP command and the last held command:
+                # u = (1 - alpha) * u_DP + alpha * u_hold
                 freeze = np.clip(full_action[14:16], 0.0, 1.0)
-                left_freeze = freeze[0] > 0.5
-                right_freeze = freeze[1] > 0.5
+                left_alpha = float(freeze[0])
+                right_alpha = float(freeze[1])
+                # Cache overlay text for visualization/logging.
+                self.overlay_text = f"L:{left_alpha:.2f} R:{right_alpha:.2f} allow_freeze:{self.allow_freeze}"
 
                 left_slice = slice(0, 7)
                 right_slice = slice(7, 14)
 
                 if self.last_action is not None:
-                    if left_freeze:
-                        base_action[left_slice] = self.last_action[left_slice]
-                    if right_freeze:
-                        base_action[right_slice] = self.last_action[right_slice]
+                    # Left arm blend
+                    if left_alpha > 0.0:
+                        base_action[left_slice] = (
+                            (1.0 - left_alpha) * base_action[left_slice]
+                            + left_alpha * self.last_action[left_slice]
+                        )
+                    # Right arm blend
+                    if right_alpha > 0.0:
+                        base_action[right_slice] = (
+                            (1.0 - right_alpha) * base_action[right_slice]
+                            + right_alpha * self.last_action[right_slice]
+                        )
 
             # step env with 14D action
             self.ts = self.env.step(base_action)
@@ -206,7 +243,28 @@ class DP_Evaluator():
 
     def append_image(self):
         cam_high_image = self.env.image_recorder.cam_high_image
-        self.image_list.append({'cam_high':cam_high_image})
+        # Overlay freeze indicators on the saved video frame, if available.
+        try:
+            import cv2
+
+            img = cam_high_image.copy()
+            # Choose custom text if provided, otherwise use the latest overlay_text.
+
+            if self.overlay_text is not None:
+                cv2.putText(
+                    img,
+                    self.overlay_text,
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+            self.image_list.append({"cam_high": img})
+        except Exception:
+            # Fallback: save raw image if overlay fails for any reason.
+            self.image_list.append({"cam_high": cam_high_image})
 
     def exit(self, save_dir):
         # save_videos(self.image_list, DT, video_path=os.path.join(save_dir, f'rollout.mp4'))
@@ -238,14 +296,16 @@ def wrapper_test():
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
         # 'handoff_cup': '/ssd1/chenyizhou/dp_ckpts/handoff_cup/long_chunk/epoch=1975-train_loss=0.0000.ckpt', \
-        'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/epoch=1900-train_loss=0.0001.ckpt',\
-        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/20demos/latest.ckpt',\
-        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/long_chunk/epoch=1900-train_loss=0.0002.ckpt'
+        # 'clean_cup': '/ssd1/chenyizhou/dp_ckpts/clean_cup/long_chunk/epoch=1900-train_loss=0.0001.ckpt',\
+        'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/fm_3view/latest.ckpt',\
+        # 'screwdriver_noisy': '/ssd1/chenyizhou/dp_ckpts/aloha_screwdriver_noisy/long_chunk/epoch=1925-train_loss=0.0001.ckpt',
+        # 'two_arm_pour': '/ssd1/chenyizhou/dp_ckpts/two_arm_pour/original_long_horizon_new.ckpt',
+        # 'two_arm_pour_freeze': '/ssd1/chenyizhou/dp_ckpts/two_arm_pour/freeze_long_horizon.ckpt'
 
                        }
     skill_names = list(checkpoint_dict.keys())
 
-    max_timesteps = 800
+    max_timesteps = 1400
     num_inference_steps = 10
     scale = 4
 
@@ -253,7 +313,7 @@ def wrapper_test():
                       num_inference_steps, scale)
     
     for skill in skill_names:
-        dp.set_skill(skill)
+        # dp.set_skill(skill)
         for i in range(max_timesteps):
             dp.inference()
             dp.append_image()

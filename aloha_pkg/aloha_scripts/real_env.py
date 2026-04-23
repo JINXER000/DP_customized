@@ -38,7 +38,7 @@ class RealEnv:
                                    "cam_right_wrist": (480x640x3)} # h, w, c, dtype='uint8'
     """
 
-    def __init__(self, init_node, setup_robots=True, downsample_scale=1):
+    def __init__(self, init_node, setup_robots=True, downsample_scale=1, camera_names=None):
         self.puppet_bot_left = InterbotixManipulatorXS(robot_model="vx300s", group_name="arm", gripper_name="gripper",
                                                        robot_name=f'puppet_left', init_node=init_node)
         self.puppet_bot_right = InterbotixManipulatorXS(robot_model="vx300s", group_name="arm", gripper_name="gripper",
@@ -48,7 +48,7 @@ class RealEnv:
 
         self.recorder_left = Recorder('left', init_node=False)
         self.recorder_right = Recorder('right', init_node=False)
-        self.image_recorder = ImageRecorder(init_node=False)
+        self.image_recorder = ImageRecorder(init_node=False, camera_names=camera_names)
         self.gripper_command = JointSingleCommand(name="gripper")
         self.downsample_scale = downsample_scale
 
@@ -164,8 +164,8 @@ def get_action(master_bot_left, master_bot_right):
     return action
 
 
-def make_real_env(init_node, setup_robots=True, downsample_scale=1):
-    env = RealEnv(init_node, setup_robots, downsample_scale)
+def make_real_env(init_node, setup_robots=True, downsample_scale=1, camera_names=None):
+    env = RealEnv(init_node, setup_robots, downsample_scale, camera_names=camera_names)
     return env
 
 
