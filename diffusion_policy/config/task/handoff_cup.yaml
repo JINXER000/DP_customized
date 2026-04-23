@@ -55,5 +55,5 @@ dataset:
   val_ratio: 0.2
   max_train_episodes: 
   num_episodes: 30
-  camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
+  camera_names: ["cam_high", "cam_left_wrist", "cam_right_wrist"]
   task: *name
