@@ -165,28 +165,35 @@ class AlohaImageDataset(BaseImageDataset):
         for i in tqdm(range(num_episodes)):  # num_episodes
 
             dataset_path = os.path.join(dataset_dir, f"episode_{i}.hdf5")
-            with h5py.File(dataset_path, "r") as root:
-                qpos = root["/observations/qpos"][()]
-                qvel = root["/observations/qvel"][()]
-                action = root["/action"][()]
+            try:
+                with h5py.File(dataset_path, "r") as root:
+                    qpos = root["/observations/qpos"][()]
+                    qvel = root["/observations/qvel"][()]
+                    action = root["/action"][()]
 
-                # Optionally append per-timestep freeze indicators as extra action dimensions.
-                if self.allow_freeze and "left_frozen" in root and "right_frozen" in root:
-                    left_frozen = root["left_frozen"][()].astype(np.float32)
-                    right_frozen = root["right_frozen"][()].astype(np.float32)
-                    freeze = np.stack([left_frozen, right_frozen], axis=-1).astype(
-                        np.float32
-                    )
-                    # Expect same temporal length; if not, truncate to the shortest.
-                    T = min(action.shape[0], freeze.shape[0])
-                    action = np.concatenate([action[:T], freeze[:T]], axis=-1)
-                    qpos = qpos[:T]
-                    qvel = qvel[:T]
+                    # Optionally append per-timestep freeze indicators as extra action dimensions.
+                    if self.allow_freeze and "left_frozen" in root and "right_frozen" in root:
+                        left_frozen = root["left_frozen"][()].astype(np.float32)
+                        right_frozen = root["right_frozen"][()].astype(np.float32)
+                        freeze = np.stack([left_frozen, right_frozen], axis=-1).astype(
+                            np.float32
+                        )
+                        # Expect same temporal length; if not, truncate to the shortest.
+                        T = min(action.shape[0], freeze.shape[0])
+                        action = np.concatenate([action[:T], freeze[:T]], axis=-1)
+                        qpos = qpos[:T]
+                        qvel = qvel[:T]
 
-                # stack different cameras
-                all_cam_images = dict()
-                for cam_name in camera_names:
-                    all_cam_images[cam_name] = root[f"/observations/images/{cam_name}"][()]
+                    # stack different cameras
+                    all_cam_images = dict()
+                    for cam_name in camera_names:
+                        all_cam_images[cam_name] = root[f"/observations/images/{cam_name}"][()]
+            except OSError as e:
+                raise OSError(
+                    f"Failed to open dataset episode file '{dataset_path}' (episode index {i}). "
+                    "This usually means the file is truncated or corrupted. "
+                    "Please regenerate or replace this episode file."
+                ) from e
 
             episode = {
                 "qpos": qpos, # [T, dim]

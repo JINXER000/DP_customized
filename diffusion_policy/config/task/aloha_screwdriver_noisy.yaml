@@ -1,6 +1,6 @@
 name: &name aloha_screwdriver_noisy
-dataset_dir: &dataset_dir data/aloha/datasets/aloha_screwdriver_noisy
-
+# dataset_dir: &dataset_dir data/aloha/datasets/aloha_screwdriver_noisy
+dataset_dir: &dataset_dir /media/data5/yzchen/imitation_learning/aloha_data/screwdriver_noisy/resized_4
 ## version.1 - multi-view observation are independently encoded
 dataset_target: &dataset_target diffusion_policy.dataset.aloha_image_dataset_multi.AlohaImageDataset
 image_shape: &image_shape [3, 120, 160] 
@@ -54,7 +54,7 @@ dataset:
   seed: 42
   val_ratio: 0.2
   max_train_episodes: null
-  num_episodes: 20
+  num_episodes: 80
   # camera_names: ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
   camera_names: ["cam_high", "cam_left_wrist", "cam_right_wrist"]
   task: *name

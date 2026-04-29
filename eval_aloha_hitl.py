@@ -38,6 +38,13 @@ from interbotix_xs_modules.arm import InterbotixManipulatorXS
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
+
+def _resolve_camera_names(cfg):
+    default_camera_names = ['cam_high', 'cam_low', 'cam_left_wrist', 'cam_right_wrist']
+    if hasattr(cfg, "task") and hasattr(cfg.task, "dataset") and hasattr(cfg.task.dataset, "camera_names"):
+        return list(cfg.task.dataset.camera_names)
+    return default_camera_names
+
 ## data configuration settings
 @click.command()
 @click.option('--input', '-i', required=True, help='Path to checkpoint')
@@ -110,7 +117,9 @@ def main(
     # hyper-parameters
     ## observation
     state_dim = cfg.task.shape_meta.obs.qpos.shape[0] ## qpos shape
-    camera_names = cfg.task.dataset.camera_names
+    camera_names = _resolve_camera_names(cfg)
+    if 'cam_high' not in camera_names:
+        raise ValueError("eval_aloha_hitl requires 'cam_high' in camera_names for video recording.")
     obs_shape_meta = cfg.task.shape_meta.obs
     c, h, w = obs_shape_meta.cam_high.shape ## [c, h, w]
 
@@ -119,7 +128,11 @@ def main(
     n_obs_steps = cfg.n_obs_steps
 
     # setup experiment
-    env = make_real_env(init_node=True, downsample_scale=scale)
+    env = make_real_env(
+        init_node=True,
+        downsample_scale=scale,
+        camera_names=camera_names,
+    )
     master_bot_left = InterbotixManipulatorXS(robot_model="wx250s", group_name="arm", gripper_name="gripper",
                                               robot_name=f'master_left', init_node=False)
     master_bot_right = InterbotixManipulatorXS(robot_model="wx250s", group_name="arm", gripper_name="gripper",
