@@ -1,4 +1,3 @@
-
 import os
 import pathlib
 import time
@@ -92,8 +91,12 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
         self.env_initialized = False
 
+    def _policy_step_offset(self):
+        return (self.t - self.t_bc_start) % self.query_cycle
+
     def set_bc_controller(self):
         self.update_controllers(controller_name = "OSC_POSE", abs_action = self.lfd_abs_action)
+        self.t_bc_start = self.t
 
 
     def initialize_env(self, env_name,  **kwargs):
@@ -164,7 +167,10 @@ class Robosuite_Evaluator(DMG_env_switchable):
         super().__init__(env_name, controller_name=controller_name, abs_action=self.lfd_abs_action, H=height, W=width, cam_names=["agentview", "birdview", "frontview",  "robot0_eye_in_hand", "robot1_eye_in_hand"],max_timesteps = self.max_timesteps,  **kwargs)
         self.env_initialized = True
 
-        
+    def reset_to(self, state):
+        ret = super().reset_to({"states" : state})
+        self.t_bc_start = self.t
+        return ret
 
     def reset_ts(self):
 
@@ -191,6 +197,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 dtype=np.float32
             )
         self.t = 0
+        self.t_bc_start = 0
         return ts
 
     def record_frame(self, obs):
@@ -221,6 +228,8 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
         start = time.time()
 
+        obs = self.ts.observation
+        collect_obs(self.obs_shape_meta, self.obs_history, self.t, obs)
         self.ts = self.step_ts(total_action)
         self.env.render()
         # limit frame rate if necessary
@@ -229,7 +238,8 @@ class Robosuite_Evaluator(DMG_env_switchable):
         if diff > 0:
             time.sleep(diff)
             
-        self.record_frame(self.ts.observation)
+        self.record_frame(obs)
+        self.t += 1
         return self.ts
     # def get_mj_pc_dict(self, **kwargs):
     #     return self.env.save_mj_observation(**kwargs)
@@ -247,10 +257,10 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
             # query policy to extract action: (B=1, Da)
             # t0 = time.perf_counter()
-            if self.t % self.query_cycle == 0:
+            if self._policy_step_offset() == 0:
                 action_dict = self.policy.predict_action(obs_dict)
                 self.np_action_seq = action_dict['action'][0].detach().to('cpu').numpy() # T,Da
-            action = self.np_action_seq[self.t % self.query_cycle]
+            action = self.np_action_seq[self._policy_step_offset()]
             # t1 = time.perf_counter()
 
             self.ts = self.step_ts(action)
