@@ -2,6 +2,7 @@ import collections
 import importlib
 import os
 import sys
+import tempfile
 import types
 
 import numpy as np
@@ -183,3 +184,88 @@ def test_replay_tamp_step_updates_history_and_time():
     )
     np.testing.assert_array_equal(evaluator.ts.observation["state"], next_obs["state"])
     assert evaluator.t == 1
+
+
+def test_load_checkpoint_passes_env_options_without_legacy_hw_kwargs():
+    module, _ = load_module()
+    evaluator = module.Robosuite_Evaluator.__new__(module.Robosuite_Evaluator)
+
+    class FakePolicy:
+        def eval(self):
+            return self
+
+        def to(self, device):
+            return self
+
+        def parameters(self):
+            return []
+
+    fake_policy = FakePolicy()
+
+    workspace = types.SimpleNamespace(
+        load_payload=lambda payload, exclude_keys=None, include_keys=None: None
+    )
+
+    cfg = types.SimpleNamespace(
+        _target_="fake.workspace",
+        policy="fake.policy",
+        optimizer="fake.optimizer",
+        training=types.SimpleNamespace(use_ema=False),
+        name="diffusion-test",
+        task=types.SimpleNamespace(
+            shape_meta=types.SimpleNamespace(
+                obs={"state": {"shape": (2,), "type": "low_dim"}},
+                action=types.SimpleNamespace(shape=(7,)),
+            )
+        ),
+        n_action_steps=4,
+        n_obs_steps=2,
+    )
+
+    captured = {}
+
+    def fake_parent_init(self, *args, **kwargs):
+        if "H" in kwargs or "W" in kwargs or "cam_names" in kwargs:
+            raise TypeError("legacy image sizing kwargs should not be forwarded")
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+    parent_cls = module.Robosuite_Evaluator.__mro__[1]
+    original_parent_init = getattr(parent_cls, "__init__", None)
+    original_torch_load = module.torch.load
+    original_get_class = module.hydra.utils.get_class
+    original_instantiate = module.hydra.utils.instantiate
+
+    with tempfile.NamedTemporaryFile() as handle:
+        evaluator.output = "/tmp"
+        evaluator.checkpoint_dict = {"task": handle.name}
+        evaluator.cur_env_name = "task"
+        evaluator.num_inference_steps = 10
+        evaluator.max_timesteps = 20
+        evaluator.env_initialized = False
+
+        try:
+            parent_cls.__init__ = fake_parent_init
+            module.torch.load = lambda *args, **kwargs: {"cfg": cfg}
+            module.hydra.utils.get_class = lambda target: (
+                lambda cfg, output_dir=None: workspace
+            )
+            module.hydra.utils.instantiate = lambda spec, *args, **kwargs: (
+                fake_policy if spec == "fake.policy" else object()
+            )
+
+            evaluator.load_checkpoint(
+                controller_name="OSC_POSE",
+                env_options={"camera_names": ["agentview"]},
+            )
+        finally:
+            if original_parent_init is None:
+                delattr(parent_cls, "__init__")
+            else:
+                parent_cls.__init__ = original_parent_init
+            module.torch.load = original_torch_load
+            module.hydra.utils.get_class = original_get_class
+            module.hydra.utils.instantiate = original_instantiate
+
+    assert captured["kwargs"]["env_options"] == {"camera_names": ["agentview"]}
+    assert captured["kwargs"]["max_timesteps"] == evaluator.max_timesteps

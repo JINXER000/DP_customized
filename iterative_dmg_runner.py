@@ -104,7 +104,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.load_checkpoint(**kwargs)        
         self.ts = self.reset_all()
 
-    def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", **kwargs):
+    def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", env_options=None, **kwargs):
         # load checkpoint
         payload = torch.load(open(self.checkpoint_dict[self.cur_env_name], 'rb'), pickle_module=dill)
         cfg = payload['cfg']
@@ -164,7 +164,22 @@ class Robosuite_Evaluator(DMG_env_switchable):
             raise NotImplementedError("policy switching is not supported yet")
         
         np.random.seed(int(time.time()))
-        super().__init__(env_name, controller_name=controller_name, abs_action=self.lfd_abs_action, H=height, W=width, cam_names=["agentview", "birdview", "frontview",  "robot0_eye_in_hand", "robot1_eye_in_hand"],max_timesteps = self.max_timesteps,  **kwargs)
+        init_kwargs = dict(
+            controller_name=controller_name,
+            abs_action=self.lfd_abs_action,
+            max_timesteps=self.max_timesteps,
+            **kwargs,
+        )
+        if env_options is not None:
+            init_kwargs["env_options"] = env_options
+        else:
+            init_kwargs.update(
+                H=height,
+                W=width,
+                cam_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],
+            )
+
+        super().__init__(env_name, **init_kwargs)
         self.env_initialized = True
 
     def reset_to(self, state):
