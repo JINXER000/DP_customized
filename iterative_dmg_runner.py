@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import dill
 import hydra
+import h5py
 
 
 from diffusion_policy.common.pytorch_util import dict_apply
@@ -65,12 +66,15 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.checkpoint_dict = checkpoint_dict
         self.output = output
         self.num_inference_steps = num_inference_steps
+        self.fps = fps
+        self.render_obs_key = render_obs_key
+        self.hdf5_path = None
+        self.hdf5_buffers = {}
 
-        
+
         self.lfd_alg = 'DP'
         ## config image recording
         if record:
-            self.render_obs_key = render_obs_key
             self.video_recorder = VideoRecorder.create_h264(
                             fps=fps,
                             codec='h264',
@@ -84,6 +88,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 os.makedirs(save_dir)
             cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
             self.file_path = os.path.join(save_dir,  'test_' +cur_time +'.mp4')
+            self.hdf5_path = os.path.join(save_dir, 'test_' +cur_time +'.hdf5')
             print(f"{self.render_obs_key} will be saved to: {self.file_path}")
         else:
             self.file_path = None
@@ -203,7 +208,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
     def reset_all(self):
         ts = self.reset_ts()
 
-            
+
         ## obs history for extracting multi-step obs
         self.obs_history = dict()
         for key in self.obs_shape_meta.keys():
@@ -211,6 +216,18 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 (self.max_timesteps, *self.obs_shape_meta[key].shape),
                 dtype=np.float32
             )
+
+        if self.video_recorder is not None:
+            render_keys = [self.render_obs_key] if isinstance(self.render_obs_key, str) else list(self.render_obs_key)
+            for cam in render_keys:
+                if cam not in self.obs_shape_meta:
+                    raise KeyError(f"render_obs_key '{cam}' not found in obs_shape_meta")
+                if self.obs_shape_meta[cam].get('type') != 'rgb':
+                    raise ValueError(f"render_obs_key '{cam}' must have type 'rgb', got {self.obs_shape_meta[cam].get('type')!r}")
+            self.hdf5_buffers = {cam: [] for cam in render_keys}
+        else:
+            self.hdf5_buffers = {}
+
         self.t = 0
         self.t_bc_start = 0
         return ts
@@ -222,16 +239,15 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 if not self.video_recorder.is_ready():
                     self.video_recorder.start(self.file_path)
 
-                if isinstance(self.render_obs_key, list):
-                    img = []
-                    for cam_name in self.render_obs_key:
-                        cam_img = np.moveaxis(obs[cam_name], 0, -1)
-                        img.append(cam_img)
-                    img = np.concatenate(img, axis=1)
-                else:
-                    img = np.moveaxis(obs[self.render_obs_key], 0, -1)
-                frame = (img * 255).astype(np.uint8) 
-                
+                render_keys = [self.render_obs_key] if isinstance(self.render_obs_key, str) else list(self.render_obs_key)
+                cam_frames = []
+                for cam_name in render_keys:
+                    cam_frame = (np.moveaxis(obs[cam_name], 0, -1) * 255).astype(np.uint8)
+                    if cam_name in self.hdf5_buffers:
+                        self.hdf5_buffers[cam_name].append(cam_frame)
+                    cam_frames.append(cam_frame)
+                frame = cam_frames[0] if len(cam_frames) == 1 else np.concatenate(cam_frames, axis=1)
+
                 self.video_recorder.write_frame(frame)
             except Exception as e:
                 print(f"Warning: Failed to record video frame: {e}")
@@ -325,6 +341,23 @@ class Robosuite_Evaluator(DMG_env_switchable):
                     
             except Exception as e:
                 print(f"Error stopping video recorder: {e}")
+
+        if self.hdf5_path is not None and self.hdf5_buffers:
+            try:
+                with h5py.File(self.hdf5_path, 'w') as hf:
+                    hf.attrs['fps'] = self.fps
+                    hf.attrs['max_timesteps'] = self.max_timesteps
+                    num_recorded = 0
+                    for cam_name, cam_frames in self.hdf5_buffers.items():
+                        if not cam_frames:
+                            continue
+                        hf.create_dataset(cam_name, data=np.stack(cam_frames, axis=0), compression='gzip')
+                        num_recorded = max(num_recorded, len(cam_frames))
+                    hf.attrs['num_frames'] = num_recorded
+                print(f"HDF5 saved to: {self.hdf5_path}")
+            except Exception as e:
+                print(f"Warning: Failed to write HDF5 file: {e}")
+
         return self.file_path
 
 
