@@ -80,6 +80,8 @@ class RobomimicImageRunner(BaseImageRunner):
             dataset_path)
         # disable object state observation
         env_meta['env_kwargs']['use_object_obs'] = False
+        env_meta['env_kwargs']['camera_depths'] = False
+        env_meta['env_kwargs'].pop('camera_segmentations', None)
 
         rotation_transformer = None
         if abs_action:
