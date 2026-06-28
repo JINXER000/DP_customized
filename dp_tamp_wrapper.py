@@ -332,6 +332,17 @@ class DP_Evaluator():
         """Full reset including observation buffers (matches legacy set_skill path)."""
         self.reset_loaded_skill(reset_grippers=reset_grippers, reinit_buffers=True)
 
+    def clear_recording_state(self):
+        """Discard unsaved recording buffers (keyboard P-reset only)."""
+        self.image_list = []
+        if self.save_hdf5:
+            self.hdf5_buffers = {cam: [] for cam in self.render_obs_keys}
+        else:
+            self.hdf5_buffers = None
+        self.hdf5_path = None
+        self.overlay_text = None
+        self.video_writer = None
+
     def refresh_ts_from_env(self):
         """Refresh policy timestep observation from the real env (no physics step)."""
         self.ts = dm_env.TimeStep(
@@ -517,26 +528,30 @@ class DP_Evaluator():
 
     def exit(self, save_dir):
         # save_videos(self.image_list, DT, video_path=os.path.join(save_dir, f'rollout.mp4'))
-        import cv2
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
         vid_save_path = os.path.join(save_dir,  'test_' +cur_time +'.avi')
 
-        height, width, _ = self.image_list[0]['cam_high'].shape
-        fps = 30  # Adjust based on your camera settings
-        self.video_writer = cv2.VideoWriter(
-            vid_save_path,
-            cv2.VideoWriter_fourcc(*'XVID'),
-            fps,
-            ( width,height)
-        )
-        for image in self.image_list:
-            rgb_image = cv2.cvtColor(image['cam_high'], cv2.COLOR_BGR2RGB)
-            # transpose image width and height
-            self.video_writer.write(rgb_image)
-        self.video_writer.release()
-        print(f"Saved video to {vid_save_path}")
+        if self.image_list:
+            import cv2
+
+            height, width, _ = self.image_list[0]['cam_high'].shape
+            fps = 30  # Adjust based on your camera settings
+            self.video_writer = cv2.VideoWriter(
+                vid_save_path,
+                cv2.VideoWriter_fourcc(*'XVID'),
+                fps,
+                ( width,height)
+            )
+            for image in self.image_list:
+                rgb_image = cv2.cvtColor(image['cam_high'], cv2.COLOR_BGR2RGB)
+                # transpose image width and height
+                self.video_writer.write(rgb_image)
+            self.video_writer.release()
+            print(f"Saved video to {vid_save_path}")
+        else:
+            print("[DP] No frames recorded, skipping video save")
 
         if self.save_hdf5 and self.hdf5_buffers is not None and any(self.hdf5_buffers.values()):
             self.hdf5_path = os.path.join(save_dir, 'test_' + cur_time + '.hdf5')

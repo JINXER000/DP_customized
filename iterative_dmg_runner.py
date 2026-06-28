@@ -175,14 +175,18 @@ class Robosuite_Evaluator(DMG_env_switchable):
             max_timesteps=self.max_timesteps,
             **kwargs,
         )
-        if env_options is not None:
-            init_kwargs["env_options"] = env_options
-        else:
-            init_kwargs.update(
-                H=height,
-                W=width,
-                cam_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],
+        if env_options is None:
+            # DMG_env_switchable no longer accepts H/W/cam_names directly; it expects a
+            # robosuite-style env_options dict. Reproduce the wrapper's previous defaults.
+            env_options = dict(
+                env_configuration="single-arm-parallel",
+                robots=["Panda", "Panda"],
+                camera_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],
+                camera_heights=height,
+                camera_widths=width,
+                camera_segmentations="instance",
             )
+        init_kwargs["env_options"] = env_options
 
         super().__init__(env_name, **init_kwargs)
         self.env_initialized = True
@@ -291,6 +295,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
             if self._policy_step_offset() == 0:
                 action_dict = self.policy.predict_action(obs_dict)
                 self.np_action_seq = action_dict['action'][0].detach().to('cpu').numpy() # T,Da
+                self.query_cycle = len(self.np_action_seq)  # sync to actual chunk size (may differ from cfg.n_action_steps)
             action = self.np_action_seq[self._policy_step_offset()]
             # t1 = time.perf_counter()
 
@@ -304,6 +309,41 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.record_frame(obs)
 
         return self.ts.done
+
+    @staticmethod
+    def _outcome_prefixed_path(path, prefix):
+        """Replace the provisional 'test_' token of a recording filename with `prefix`."""
+        directory, filename = os.path.split(path)
+        assert filename.startswith('test_'), f"unexpected recording name: {filename}"
+        return os.path.join(directory, prefix + filename[len('test_'):])
+
+    def _label_recordings_by_outcome(self):
+        """Rename this run's recording artifacts to reflect the task outcome.
+
+        The recorder writes to a provisional ``test_<stamp>`` name because success is
+        only known once execution ends. Resolve the outcome with the same reward check
+        the executor reports (``handle_rewards``) and rename the mp4 -- and its paired
+        hdf5 -- to ``success_<stamp>`` / ``fail_<stamp>``. Best-effort: a missing or
+        already-present target is reported and skipped so a valid run is never lost to
+        a cosmetic rename.
+        """
+        if self.file_path is None:
+            return
+        prefix = 'success_' if self.handle_rewards() else 'fail_'
+        renames = [('file_path', self.file_path)]
+        if self.hdf5_path is not None and self.hdf5_buffers:
+            renames.append(('hdf5_path', self.hdf5_path))
+        for attr, src in renames:
+            dst = self._outcome_prefixed_path(src, prefix)
+            if not os.path.exists(src):
+                print(f"Warning: recording artifact missing, cannot label: {src}")
+                continue
+            if os.path.exists(dst):
+                print(f"Warning: refusing to overwrite existing artifact: {dst}")
+                continue
+            os.rename(src, dst)
+            setattr(self, attr, dst)
+            print(f"Recording labeled '{prefix.rstrip('_')}': {dst}")
 
     def exit(self):
      
@@ -358,6 +398,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
             except Exception as e:
                 print(f"Warning: Failed to write HDF5 file: {e}")
 
+        self._label_recordings_by_outcome()
         return self.file_path
 
 
@@ -365,11 +406,11 @@ class Robosuite_Evaluator(DMG_env_switchable):
 def wrapper_test():
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        'two_arm_three_piece_assembly': \
-            #   'data/outputs/two_arm_assembly/latest.ckpt',
-            'data/outputs/two_arm_assembly/epoch=2200-test_mean_score=0.720.ckpt',
-        # 'two_arm_threading': \
-        # 'data/outputs/two_arm_threading/epoch=1350-test_mean_score=0.500.ckpt',
+        # 'two_arm_three_piece_assembly': \
+        #     #   'data/outputs/two_arm_assembly/latest.ckpt',
+        #     'data/outputs/two_arm_assembly/epoch=2200-test_mean_score=0.720.ckpt',
+        'two_arm_threading': \
+        'data/outputs/two_arm_threading/1000demo0.500.ckpt',
             # 'data/outputs/two_arm_threading/latest.ckpt',
                        }
     env_names = list(checkpoint_dict.keys())
