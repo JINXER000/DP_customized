@@ -144,3 +144,6 @@ dmypy.json
 *.avi
 .omx/
 .claude
+
+
+.specstory/
