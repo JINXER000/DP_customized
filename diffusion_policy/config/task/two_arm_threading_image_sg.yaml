@@ -71,3 +71,4 @@ dataset:
   use_cache: True
   seed: 42
   val_ratio: 0.02
+  n_demo: ${n_demo}
