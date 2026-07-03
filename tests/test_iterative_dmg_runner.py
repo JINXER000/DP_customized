@@ -82,7 +82,6 @@ def load_module():
 
     wrapper_module.DMG_env_switchable = DummyEnvSwitchable
     wrapper_module.to_camel_case = lambda name: name
-    wrapper_module.ts_tuple = time_step
     scripts_module.robomimic_dmg_wrapper = wrapper_module
 
     stubbed_modules = {

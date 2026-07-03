@@ -9,6 +9,7 @@ import torch
 import dill
 import hydra
 import h5py
+from collections import namedtuple
 
 
 from diffusion_policy.common.pytorch_util import dict_apply
@@ -17,8 +18,12 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecorder
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
-from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case, ts_tuple
+from scripts.robomimic_dmg_wrapper import DMG_env_switchable, to_camel_case
 import cv2
+
+# Timestep contract for reset_ts/step_ts. The upstream DMG wrapper turned these
+# into abstract stubs, so the subclass here owns the return type.
+ts_tuple = namedtuple("ts_tuple", ["observation", "reward", "done", "info"])
 
 def collect_obs(obs_shape_meta, obs_history, t, obs):
     """
