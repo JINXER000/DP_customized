@@ -142,6 +142,8 @@ dmypy.json
 ## video
 *.mp4
 *.avi
+.omx/
+.claude
 
 
 .specstory/

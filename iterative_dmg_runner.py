@@ -1,4 +1,3 @@
-
 import os
 import pathlib
 import time
@@ -9,6 +8,8 @@ import numpy as np
 import torch
 import dill
 import hydra
+import h5py
+from collections import namedtuple
 
 
 from diffusion_policy.common.pytorch_util import dict_apply
@@ -17,8 +18,12 @@ from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecorder
 from diffusion_policy.model.common.rotation_transformer import RotationTransformer
 
-from scripts.robomimic_dmg_wrapper import DMG_env_switchable,to_camel_case, ts_tuple
+from scripts.robomimic_dmg_wrapper import DMG_env_switchable, to_camel_case
 import cv2
+
+# Timestep contract for reset_ts/step_ts. The upstream DMG wrapper turned these
+# into abstract stubs, so the subclass here owns the return type.
+ts_tuple = namedtuple("ts_tuple", ["observation", "reward", "done", "info"])
 
 def collect_obs(obs_shape_meta, obs_history, t, obs):
     """
@@ -66,12 +71,15 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.checkpoint_dict = checkpoint_dict
         self.output = output
         self.num_inference_steps = num_inference_steps
+        self.fps = fps
+        self.render_obs_key = render_obs_key
+        self.hdf5_path = None
+        self.hdf5_buffers = {}
 
-        
+
         self.lfd_alg = 'DP'
         ## config image recording
         if record:
-            self.render_obs_key = render_obs_key
             self.video_recorder = VideoRecorder.create_h264(
                             fps=fps,
                             codec='h264',
@@ -85,6 +93,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 os.makedirs(save_dir)
             cur_time = time.strftime("%d_%H.%M.%S", time.localtime())
             self.file_path = os.path.join(save_dir,  'test_' +cur_time +'.mp4')
+            self.hdf5_path = os.path.join(save_dir, 'test_' +cur_time +'.hdf5')
             print(f"{self.render_obs_key} will be saved to: {self.file_path}")
         else:
             self.file_path = None
@@ -92,8 +101,12 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
         self.env_initialized = False
 
+    def _policy_step_offset(self):
+        return (self.t - self.t_bc_start) % self.query_cycle
+
     def set_bc_controller(self):
         self.update_controllers(controller_name = "OSC_POSE", abs_action = self.lfd_abs_action)
+        self.t_bc_start = self.t
 
 
     def initialize_env(self, env_name,  **kwargs):
@@ -101,7 +114,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.load_checkpoint(**kwargs)        
         self.ts = self.reset_all()
 
-    def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", **kwargs):
+    def load_checkpoint(self, width = 84, height = 84, controller_name = "OSC_POSE", env_options=None, **kwargs):
         # load checkpoint
         payload = torch.load(open(self.checkpoint_dict[self.cur_env_name], 'rb'), pickle_module=dill)
         cfg = payload['cfg']
@@ -161,10 +174,32 @@ class Robosuite_Evaluator(DMG_env_switchable):
             raise NotImplementedError("policy switching is not supported yet")
         
         np.random.seed(int(time.time()))
-        super().__init__(env_name, controller_name=controller_name, abs_action=self.lfd_abs_action, H=height, W=width, cam_names=["agentview", "birdview", "frontview",  "robot0_eye_in_hand", "robot1_eye_in_hand"],max_timesteps = self.max_timesteps,  **kwargs)
+        init_kwargs = dict(
+            controller_name=controller_name,
+            abs_action=self.lfd_abs_action,
+            max_timesteps=self.max_timesteps,
+            **kwargs,
+        )
+        if env_options is None:
+            # DMG_env_switchable no longer accepts H/W/cam_names directly; it expects a
+            # robosuite-style env_options dict. Reproduce the wrapper's previous defaults.
+            env_options = dict(
+                env_configuration="single-arm-parallel",
+                robots=["Panda", "Panda"],
+                camera_names=["agentview", "birdview", "frontview", "robot0_eye_in_hand", "robot1_eye_in_hand"],
+                camera_heights=height,
+                camera_widths=width,
+                camera_segmentations="instance",
+            )
+        init_kwargs["env_options"] = env_options
+
+        super().__init__(env_name, **init_kwargs)
         self.env_initialized = True
 
-        
+    def reset_to(self, state):
+        ret = super().reset_to({"states" : state})
+        self.t_bc_start = self.t
+        return ret
 
     def reset_ts(self):
 
@@ -182,7 +217,7 @@ class Robosuite_Evaluator(DMG_env_switchable):
     def reset_all(self):
         ts = self.reset_ts()
 
-            
+
         ## obs history for extracting multi-step obs
         self.obs_history = dict()
         for key in self.obs_shape_meta.keys():
@@ -190,7 +225,20 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 (self.max_timesteps, *self.obs_shape_meta[key].shape),
                 dtype=np.float32
             )
+
+        if self.video_recorder is not None:
+            render_keys = [self.render_obs_key] if isinstance(self.render_obs_key, str) else list(self.render_obs_key)
+            for cam in render_keys:
+                if cam not in self.obs_shape_meta:
+                    raise KeyError(f"render_obs_key '{cam}' not found in obs_shape_meta")
+                if self.obs_shape_meta[cam].get('type') != 'rgb':
+                    raise ValueError(f"render_obs_key '{cam}' must have type 'rgb', got {self.obs_shape_meta[cam].get('type')!r}")
+            self.hdf5_buffers = {cam: [] for cam in render_keys}
+        else:
+            self.hdf5_buffers = {}
+
         self.t = 0
+        self.t_bc_start = 0
         return ts
 
     def record_frame(self, obs):
@@ -200,16 +248,15 @@ class Robosuite_Evaluator(DMG_env_switchable):
                 if not self.video_recorder.is_ready():
                     self.video_recorder.start(self.file_path)
 
-                if isinstance(self.render_obs_key, list):
-                    img = []
-                    for cam_name in self.render_obs_key:
-                        cam_img = np.moveaxis(obs[cam_name], 0, -1)
-                        img.append(cam_img)
-                    img = np.concatenate(img, axis=1)
-                else:
-                    img = np.moveaxis(obs[self.render_obs_key], 0, -1)
-                frame = (img * 255).astype(np.uint8) 
-                
+                render_keys = [self.render_obs_key] if isinstance(self.render_obs_key, str) else list(self.render_obs_key)
+                cam_frames = []
+                for cam_name in render_keys:
+                    cam_frame = (np.moveaxis(obs[cam_name], 0, -1) * 255).astype(np.uint8)
+                    if cam_name in self.hdf5_buffers:
+                        self.hdf5_buffers[cam_name].append(cam_frame)
+                    cam_frames.append(cam_frame)
+                frame = cam_frames[0] if len(cam_frames) == 1 else np.concatenate(cam_frames, axis=1)
+
                 self.video_recorder.write_frame(frame)
             except Exception as e:
                 print(f"Warning: Failed to record video frame: {e}")
@@ -221,6 +268,8 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
         start = time.time()
 
+        obs = self.ts.observation
+        collect_obs(self.obs_shape_meta, self.obs_history, self.t, obs)
         self.ts = self.step_ts(total_action)
         self.env.render()
         # limit frame rate if necessary
@@ -229,7 +278,8 @@ class Robosuite_Evaluator(DMG_env_switchable):
         if diff > 0:
             time.sleep(diff)
             
-        self.record_frame(self.ts.observation)
+        self.record_frame(obs)
+        self.t += 1
         return self.ts
     # def get_mj_pc_dict(self, **kwargs):
     #     return self.env.save_mj_observation(**kwargs)
@@ -247,10 +297,11 @@ class Robosuite_Evaluator(DMG_env_switchable):
 
             # query policy to extract action: (B=1, Da)
             # t0 = time.perf_counter()
-            if self.t % self.query_cycle == 0:
+            if self._policy_step_offset() == 0:
                 action_dict = self.policy.predict_action(obs_dict)
                 self.np_action_seq = action_dict['action'][0].detach().to('cpu').numpy() # T,Da
-            action = self.np_action_seq[self.t % self.query_cycle]
+                self.query_cycle = len(self.np_action_seq)  # sync to actual chunk size (may differ from cfg.n_action_steps)
+            action = self.np_action_seq[self._policy_step_offset()]
             # t1 = time.perf_counter()
 
             self.ts = self.step_ts(action)
@@ -263,6 +314,41 @@ class Robosuite_Evaluator(DMG_env_switchable):
         self.record_frame(obs)
 
         return self.ts.done
+
+    @staticmethod
+    def _outcome_prefixed_path(path, prefix):
+        """Replace the provisional 'test_' token of a recording filename with `prefix`."""
+        directory, filename = os.path.split(path)
+        assert filename.startswith('test_'), f"unexpected recording name: {filename}"
+        return os.path.join(directory, prefix + filename[len('test_'):])
+
+    def _label_recordings_by_outcome(self):
+        """Rename this run's recording artifacts to reflect the task outcome.
+
+        The recorder writes to a provisional ``test_<stamp>`` name because success is
+        only known once execution ends. Resolve the outcome with the same reward check
+        the executor reports (``handle_rewards``) and rename the mp4 -- and its paired
+        hdf5 -- to ``success_<stamp>`` / ``fail_<stamp>``. Best-effort: a missing or
+        already-present target is reported and skipped so a valid run is never lost to
+        a cosmetic rename.
+        """
+        if self.file_path is None:
+            return
+        prefix = 'success_' if self.handle_rewards() else 'fail_'
+        renames = [('file_path', self.file_path)]
+        if self.hdf5_path is not None and self.hdf5_buffers:
+            renames.append(('hdf5_path', self.hdf5_path))
+        for attr, src in renames:
+            dst = self._outcome_prefixed_path(src, prefix)
+            if not os.path.exists(src):
+                print(f"Warning: recording artifact missing, cannot label: {src}")
+                continue
+            if os.path.exists(dst):
+                print(f"Warning: refusing to overwrite existing artifact: {dst}")
+                continue
+            os.rename(src, dst)
+            setattr(self, attr, dst)
+            print(f"Recording labeled '{prefix.rstrip('_')}': {dst}")
 
     def exit(self):
      
@@ -300,6 +386,24 @@ class Robosuite_Evaluator(DMG_env_switchable):
                     
             except Exception as e:
                 print(f"Error stopping video recorder: {e}")
+
+        if self.hdf5_path is not None and self.hdf5_buffers:
+            try:
+                with h5py.File(self.hdf5_path, 'w') as hf:
+                    hf.attrs['fps'] = self.fps
+                    hf.attrs['max_timesteps'] = self.max_timesteps
+                    num_recorded = 0
+                    for cam_name, cam_frames in self.hdf5_buffers.items():
+                        if not cam_frames:
+                            continue
+                        hf.create_dataset(cam_name, data=np.stack(cam_frames, axis=0), compression='gzip')
+                        num_recorded = max(num_recorded, len(cam_frames))
+                    hf.attrs['num_frames'] = num_recorded
+                print(f"HDF5 saved to: {self.hdf5_path}")
+            except Exception as e:
+                print(f"Warning: Failed to write HDF5 file: {e}")
+
+        self._label_recordings_by_outcome()
         return self.file_path
 
 
@@ -307,11 +411,11 @@ class Robosuite_Evaluator(DMG_env_switchable):
 def wrapper_test():
     output = './data/eval/transfer_cup/'
     checkpoint_dict = {\
-        'two_arm_three_piece_assembly': \
-            #   'data/outputs/two_arm_assembly/latest.ckpt',
-            'data/outputs/two_arm_assembly/epoch=2200-test_mean_score=0.720.ckpt',
-        # 'two_arm_threading': \
-        # 'data/outputs/two_arm_threading/epoch=1350-test_mean_score=0.500.ckpt',
+        # 'two_arm_three_piece_assembly': \
+        #     #   'data/outputs/two_arm_assembly/latest.ckpt',
+        #     'data/outputs/two_arm_assembly/epoch=2200-test_mean_score=0.720.ckpt',
+        'two_arm_threading': \
+        'data/outputs/two_arm_threading/1000demo0.500.ckpt',
             # 'data/outputs/two_arm_threading/latest.ckpt',
                        }
     env_names = list(checkpoint_dict.keys())
